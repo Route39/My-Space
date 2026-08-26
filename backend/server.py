@@ -18,9 +18,10 @@ import jwt
 import re
 from pymongo.errors import DuplicateKeyError
 from datetime import datetime, timezone, timedelta, date
+import certifi
 
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, tlsCAFile=certifi.where())
 db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
@@ -323,6 +324,10 @@ async def run_migrations():
     """Idempotent: backfill tenant fields, super admin, and a 2nd demo org."""
     async for c in db.companies.find({}):
         upd = {}
+        # Backfill 'id' if missing (old records may only have _id)
+        if not c.get("id"):
+            upd["id"] = str(c["_id"])
+            c["id"] = upd["id"]
         if not c.get("slug"):
             base = re.sub(r'[^a-z0-9]', '', (c.get("name", "org").lower().split() or ["org"])[0])[:20] or "org"
             slug, i = base, 1
@@ -335,7 +340,7 @@ async def run_migrations():
             if k not in c:
                 upd[k] = v
         if upd:
-            await db.companies.update_one({"id": c["id"]}, {"$set": upd})
+            await db.companies.update_one({"_id": c["_id"]}, {"$set": upd})
     await db.companies.update_one({"name": "Route39 Technologies"}, {"$set": {"slug": "route39"}})
     if not await db.users.find_one({"role": "super_admin"}):
         await db.users.insert_one({"id": uid(), "org_id": None, "email": "platform@attendy.in",
@@ -344,10 +349,15 @@ async def run_migrations():
     if not await db.companies.find_one({"slug": "demo"}):
         try:
             await create_organization("Demo Company", "demo", "Demo Admin", "demo@attendy.app", "demo123", address="Demo Street, Mumbai")
-        except HTTPException:
+        except Exception:
             pass
     try:
         await db.companies.create_index("slug", unique=True)
+    except Exception:
+        pass
+    # Drop legacy unique index on user_id if it exists (causes null-key conflicts)
+    try:
+        await db.users.drop_index("user_id_1")
     except Exception:
         pass
     await db.myspace_items.update_many({"status": {"$exists": False}}, {"$set": {"status": "new"}})
