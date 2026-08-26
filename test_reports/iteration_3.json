@@ -1,0 +1,59 @@
+{
+  "summary": "Independent verification of the ATTENDY multi-tenant foundation on https://attendy-core.preview.emergentagent.com. Backend: created /app/backend/tests/test_tenant_isolation.py (45 tests) + test_tenant_edge_cases.py (17 tests) and re-ran the existing regression suite (backend_test.py, 61 tests). Total 123 tests, 115 passed / 8 failed (all 8 from ONE root cause). Verified cross-tenant READ isolation (Demo token vs Route39 IDs: GET /employees/{id} 404, GET /tasks/{id} 404, GET /payslip/{id} 403, lists scoped, dashboard scoped), cross-tenant WRITE isolation (NO cross-tenant mutation observed anywhere: task status/title/checklist/comment/delete, attendance edit, mark, employee update/salary, leave approve/reject 404, payroll status/adjust 404), tenant-aware login (mismatched slug -> 403 'different workspace', matching slug 200, no slug 200, unknown slug 403), onboarding (slug-available false for route39/demo/api/admin/attendy and 2-char slugs, true for fresh; signup creates isolated org with exactly 1 employee/0 tasks and a working token; duplicate slug/reserved slug/duplicate email/invalid slug all 400), platform super-admin (companies list with employee_count/user_count, no _id; company admin 403; unauth 401; deactivate -> tenant users' login 403 'inactive' -> reactivated), org-less super_admin hitting 11 tenant endpoints (no 500s, no data returned), unauth 401 on all protected routes. Frontend: /signup flow (slug auto-fill, live availability incl. 'Already taken'/'reserved', submit gating, workspace created and redirected into an empty isolated dashboard showing 1 team member), login page 'Create a workspace' link, and full regression as Route39 admin (Dashboard/Staff/Attendance/Tasks/Leave/Payroll/Settings), TL (dashboard, create-task, /settings guard redirect, leave approvals) and staff (workday hero, attendance timeline, tasks kanban + detail dialog, payslip document) - zero JS console errors. All test orgs and TEST_ data deleted; both companies left active.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PUT /api/tasks/{id}/status, PUT /api/tasks/{id}, POST /api/tasks/{id}/comments, POST /api/tasks/{id}/checklist", "issue": "CROSS-TENANT DATA LEAK. The update_one() is correctly scoped by org_id (so the write is a no-op), but the response does `db.tasks.find_one({'id': task_id})` WITHOUT org_id and returns 200 with the OTHER tenant's full task document (title, description, assignee_id/name, checklist, comments, org_id). A Demo admin can therefore read arbitrary Route39 tasks by ID. Fix: scope the returned find_one by org_id and raise 404 when the scoped document is missing (or check existence before update).", "priority": "CRITICAL"},
+      {"endpoint": "PUT /api/employees/{id}, PUT /api/employees/{id}/salary", "issue": "CROSS-TENANT PII LEAK. Same pattern: update is scoped, but `return await db.employees.find_one({'id': emp_id})` is unscoped, so a foreign admin gets 200 + the other tenant's full employee record (name, email, phone, monthly_salary, department, shift). Scope the find_one by org_id and 404 if absent.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "PUT /api/tasks/{id}/checklist (toggle)", "issue": "Cross-tenant call is a correct no-op but returns 200 with body `null` instead of 404. Frontend/clients would treat this as success."},
+      {"endpoint": "PUT /api/attendance/{id}", "issue": "Cross-tenant edit is a correct no-op but returns 200 with body `null` instead of 404 (no existence check before update_one)."},
+      {"endpoint": "PUT /api/platform/companies/{org_id}/status", "issue": "No existence check: an unknown org_id returns 200 with body `null` instead of 404."},
+      {"endpoint": "POST /api/onboarding/signup", "issue": "No rate limiting / abuse protection on public org creation; unlimited tenants + users can be created anonymously. Also a slug race between the find_one check and insert surfaces as a 500 duplicate-key error rather than 400."},
+      {"endpoint": "POST /api/auth/login", "issue": "No brute-force lockout - 6 consecutive wrong passwords all return 401 with no throttling/429 (verified in test_tenant_edge_cases.py). JWT is returned in the body and stored in localStorage (no httpOnly cookie), so tokens are XSS-exposed."},
+      {"endpoint": "CORS (server.py:1081)", "issue": "allow_credentials=True combined with allow_origins defaulting to '*' (preview responds with 'access-control-allow-origin: *'). For the *.attendy.in multi-tenant model use allow_origin_regex with an explicit subdomain allowlist."},
+      {"endpoint": "GET /api/attendance", "issue": "The on-leave lookup `db.leaves.find({status:'Approved',...})` is not scoped by org_id; it is currently harmless because results are intersected with own-org employee ids, but it should be org-scoped for defence in depth."},
+      {"endpoint": "PUT /api/payroll/{pid}/status", "issue": "Notification lookup `db.users.find_one({'employee_id_ref': p['employee_id']})` is not org-scoped (harmless today since employee ids are unique, but inconsistent with the isolation model)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Signup page", "issues": ["'.attendy.in' suffix and helper text use text-slate-400 on white (~2.6:1) - same low-contrast issue flagged in iteration_2.", "No inline validation message for password < 6 chars; the submit button is simply disabled with no explanation."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_tenant_isolation.py",
+    "/app/backend/tests/test_tenant_edge_cases.py",
+    "/app/backend/tests/cleanup_tenant_test_data.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: scope every post-write `find_one` by org_id (tasks status/update/comments/checklist-add, employees update/salary) and return 404 when the scoped doc is missing - currently a foreign tenant can READ tasks and employee PII by ID via those write endpoints.",
+    "Return 404 instead of 200/null for cross-tenant PUT /api/tasks/{id}/checklist, PUT /api/attendance/{id}, and unknown-org PUT /api/platform/companies/{id}/status.",
+    "Add abuse protection to POST /api/onboarding/signup (rate limit / captcha) and convert the unique-slug race into a 400.",
+    "Add login throttling/lockout; consider httpOnly cookie sessions instead of localStorage JWT.",
+    "Set CORS_ORIGINS to an explicit list / use allow_origin_regex for *.attendy.in instead of '*' with allow_credentials=True.",
+    "Org-scope the leaves query in GET /api/attendance and the user lookup in PUT /api/payroll/{pid}/status."
+  ],
+  "critical_code_review_comments": [
+    "The isolation pattern is inconsistent: some handlers pre-check with a scoped find_one and 404 (payroll, leaves, mark_attendance - all correct), while task/employee/attendance writes rely on a scoped update_one and then return an UNSCOPED find_one. Standardise on 'fetch scoped -> 404 -> update -> return scoped'.",
+    "server.py is 1099 lines and mixes models, tenant helpers, migrations and all routers - split into routers/ + models/ modules before adding more tenant features.",
+    "run_migrations() hard-codes `db.companies.update_one({'name': 'Route39 Technologies'}, {'$set': {'slug': 'route39'}})` and seeds the demo org + super_admin password 'super123' on every startup; move seeding behind env flags so production never gets a known-password super admin.",
+    "create_organization() does a find_one existence check then insert (no transaction) - concurrent signups on the same slug will raise a raw DuplicateKeyError (500) after the unique index was added."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (credential parser now supports the 'Role: email / password' format in test_credentials.md - previously 56/61 regression tests silently SKIPPED)",
+    "/app/backend/tests/test_tenant_isolation.py (new)",
+    "/app/backend/tests/test_tenant_edge_cases.py (new)",
+    "/app/backend/tests/cleanup_tenant_test_data.py (new)"
+  ],
+  "success_rate": {"backend": "93% (115/123 tests passed; 8 failures = 2 unscoped-response bugs)", "frontend": "100% of flows tested passed (signup + admin/TL/staff regression), 0 console errors"},
+  "seed_data_creation": "Created and fully removed: 3 QA signup orgs (test-qa-*, testqa-fpy2sk-labs) with their employees/users/departments/shifts, TEST tasks, 1 TEST employee, QA leave rows. Demo company was temporarily deactivated for the platform-status test and re-activated (verified: both route39 and demo are active=true at end of run).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "/app/memory/test_credentials.md present and all 5 accounts valid (route39 admin/TL/staff, demo admin, platform super admin). Note: its format differs from what conftest.py parsed - fixed in conftest.",
+  "context_for_next_testing_agent": "Run `pytest tests/ -q` from /app/backend (pytest.ini uses -n 2 --dist loadscope). Tenant tests live in tests/test_tenant_isolation.py; the 8 known failures are all named *_no_data_leak / *_noop and assert that cross-tenant writes return 404 instead of 200+foreign document - re-run them after the main agent scopes the post-write find_one calls. No cross-tenant MUTATION was ever observed, so the isolation of data at rest is sound. Always run `python tests/cleanup_tenant_test_data.py` after a run: it deletes QA signup orgs (slug test-qa-*/testqa-*) and TEST_ rows and prints the active flag of every company (both must be true). Frontend has no subdomain on the preview URL so getTenantSlug() is null and login works without tenant_slug; the /signup flow is fully functional.",
+  "rca_of_the_issue": "All 8 failing assertions share one root cause: handlers that mutate a document scope the update by {id, org_id} (so no cross-tenant write happens) but then return `await db.<coll>.find_one({'id': <id>})` without org_id. FastAPI serialises that foreign document with 200, turning write endpoints into read primitives for other tenants (PUT /api/tasks/{id}/status with a Route39 task id returned the full Route39 task to a Demo admin token). Where the return IS scoped (checklist toggle, attendance edit) the leak is absent but the endpoint wrongly reports 200/null success. Fix = check existence with a scoped find_one first, 404 if absent, then update and return the scoped document."
+}

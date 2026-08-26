@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the My Space Kanban STATUS enhancement (backend + UI) on the preview URL. Added /app/backend/tests/test_myspace_status.py (18 tests, all pass): default status=new for all 5 types, explicit status on create, 422 on invalid status (POST and PUT), status transitions persist (GET verified), status-only PUT preserves other fields, owner-only status edit (403 for non-owner), cross-tenant 404, GET ?status= filter (alone and combined with type filter), migration backfill (every listed item has a valid status), and independence of status from pin/visibility/reminder. Full regression suite: 170/170 pass after clearing stale test data left by the previous run. UI (staff dhanusha.r + admin support@route39.in): Grid default + Board switcher with 3 columns and localStorage persistence works; all 5 item types created via UI default to 'New' with a status chip (file upload no longer crashes); editor status selector saves immediately ('Status updated' toast) and persists; non-owner sees a disabled status select with no Save/pin; filters (Checklists, Pinned) and search 'customer' narrow BOTH grid and board; pin keeps status (In Progress + pinned); Attendance/Leave/Payroll/Tasks pages unaffected; reminder notification still fires via bell. ONE CRITICAL defect found: mouse drag-and-drop on the My Space board never starts (keyboard drag works), so the headline feature is unusable with a mouse/trackpad.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/myspace?status=bogus", "issue": "Invalid status query value is silently ignored (returns all items) instead of 422 — inconsistent with POST/PUT which validate via Literal."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MySpace / Board (ItemCard + Draggable)", "issue": "CRITICAL: drag-and-drop with the mouse does not work at all — pressing and dragging a card never lifts it (no drag preview, no column change, no PUT). Keyboard drag (focus card + Space + Arrow + Space) DOES work and persists, proving dnd wiring is otherwise correct. Root cause: ItemCard renders the whole card as a native <button>, and @hello-pangea/dnd's isEventInInteractiveElement guard aborts the mouse/touch sensor when the mousedown target is an interactive element (button/input/a/select/textarea). Proof: dispatching a mousedown whose target is the drag-handle <div> (bypassing the <button>) immediately starts the drag; and the Tasks board, whose card root is a <div>, drags fine with the identical script. Fix: render the My Space card as a div with role=\"button\"/tabIndex (or add data-rfd-drag-handle-context / move dragHandleProps onto a dedicated non-interactive handle).", "selector": "[data-testid^=\"item-\"] inside [data-testid=\"board-col-new\"]", "priority": "CRITICAL"},
+      {"component": "MySpace / Editor status select", "issue": "Changing status in the editor saves immediately, but if the dialog is closed with Cancel/Escape (instead of Save) the list is not reloaded, so the card/board keeps showing the OLD status until a manual page reload. onClose should refresh the list (or update the item in local state) when status was changed.", "selector": "[data-testid=\"editor-status\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "My Space board (mobile 390px)", "issues": ["Board renders as 3 full-width stacked columns (md:grid-cols-3), so moving a card between columns on touch requires scrolling the page while dragging — practically unusable on mobile; consider horizontal snap-scroll columns or a status dropdown on the card for small screens."]},
+      {"screen": "My Space board (desktop)", "issues": ["View toggle icons have no visible labels/tooltips text besides title attr; low-contrast slate-400 inactive icon on white (minor)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_myspace_status.py", "/app/backend/tests/test_myspace.py", "/app/test_reports/pytest/iteration5_results.xml"],
+  "action_items": [
+    "CRITICAL: make the My Space board card draggable with a mouse — change ItemCard's root <button> to a div with role=\"button\" (keep onClick + keyboard handler), or attach dragHandleProps to a dedicated non-interactive handle. Verify by dragging New -> In Progress -> Completed and back.",
+    "Refresh the list when the editor is closed after a status change (Cancel/Escape currently leaves a stale status on the card until reload).",
+    "Optional: return 422 for an unknown ?status= value on GET /api/myspace instead of ignoring it."
+  ],
+  "critical_code_review_comments": [
+    "Anti-pattern: wrapping a whole draggable card in a native <button> breaks @hello-pangea/dnd pointer sensors (interactive-element guard) — Tasks.jsx correctly uses a div; keep that consistent.",
+    "onDragEnd captures `prev = items` before the optimistic setItems, so the revert-on-error path is correct, but the error toast/revert could not be exercised because mouse drag never starts.",
+    "Editor performs an immediate PUT on status change AND includes status again in the full Save payload — harmless duplication, but the immediate PUT bypasses the dialog's cancel semantics (status change is not cancellable)."
+  ],
+  "updated_files": ["/app/backend/tests/test_myspace_status.py"],
+  "success_rate": {"backend": "100% (188/188: 170 existing + 18 new status tests)", "frontend": "85% (all status features work except mouse drag-and-drop, which is fully broken)"},
+  "seed_data_creation": "Created TEST_QA_ prefixed My Space items (note/reminder/checklist/table/file + one company-visible note) for staff dhanusha.r and status test items via API; ALL deleted afterwards with /app/backend/tests/cleanup_myspace_test_data.py (verified only the user's 2 pre-existing items remain). A Tasks card moved during the dnd baseline comparison was reverted to 'todo'. Stale TEST employees/tasks/leaves from the previous iteration were cleared with cleanup_test_data.py so the full suite is green.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Used /app/memory/test_credentials.md (Route39 admin/TL/staff + Demo admin) — all logins fine; preview URL needs no tenant_slug.",
+  "context_for_next_testing_agent": "Status backend suite: /app/backend/tests/test_myspace_status.py (module fixtures reuse conftest admin/leader/staff + demo_admin). Run cleanup_test_data.py + cleanup_myspace_test_data.py BEFORE the full suite, otherwise backend_test.py TestEmployees/TestZZCleanup fail on leftover data. For board drag testing: mouse drag is blocked while ItemCard is a <button>; keyboard drag (focus [data-rfd-drag-handle-draggable-id], Space, ArrowRight, Space) is a working workaround to validate persistence. After the fix, retest mouse drag New->In Progress->Completed, the 'Marked completed' toast, and revert-on-error.",
+  "rca_of_the_issue": "Mouse DnD failure: @hello-pangea/dnd's mouse/touch sensors call isEventInInteractiveElement(event) and abort the lift when the event target (or any ancestor up to the draggable) is a native interactive element. MySpace ItemCard's root node is <button>, and the Draggable's dragHandleProps sit on its parent <div>, so every real mousedown originates inside the button and the drag is never initiated. Verified three ways: (1) keyboard sensor moves the card and persists status via PUT; (2) a synthetic mousedown dispatched with the wrapper <div> as target starts the drag immediately; (3) the Tasks kanban (card root = <div>) drags successfully with the same Playwright mouse script."
+}

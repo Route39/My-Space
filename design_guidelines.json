@@ -1,0 +1,93 @@
+{
+  "theme": "Light mode default. Soft, airy, high-utility, productivity-app aesthetic.",
+  "typography": {
+    "headings": "Outfit (Clean, modern geometric, un-opinionated but distinct character)",
+    "body": "Figtree (Highly readable for data density and tables)",
+    "weights": "Light (300) for large numbers, Medium (500) for standard headings, Bold (700) for highlights",
+    "tracking": "tracking-tight on H1/H2, normal on body",
+    "hierarchy": {
+      "h1": "text-3xl md:text-4xl font-bold tracking-tight text-slate-900",
+      "h2": "text-xl md:text-2xl font-semibold text-slate-800",
+      "h3": "text-lg font-medium text-slate-700",
+      "body": "text-sm md:text-base text-slate-600"
+    }
+  },
+  "colors": {
+    "background": "bg-[#F8F9FA] (Off-white/light gray)",
+    "surface": "bg-white",
+    "primary": "bg-emerald-600 hover:bg-emerald-700 text-white (For check-in and primary actions)",
+    "destructive": "bg-red-500 hover:bg-red-600 text-white (For check-out, leave rejection)",
+    "accent": "bg-blue-500 (For informative states, task in-progress)",
+    "text_main": "text-slate-900",
+    "text_muted": "text-slate-500",
+    "border": "border-slate-200"
+  },
+  "visual_enhancers": {
+    "shadows": "Very subtle ambient shadows for cards: shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)]",
+    "borders": "1px crisp border-slate-200/60 on all cards",
+    "radius": "rounded-2xl for main cards, rounded-xl for inner elements (buttons, inputs)",
+    "glassmorphism": "Used ONLY for mobile bottom navigation and sticky headers (backdrop-blur-xl bg-white/80)"
+  },
+  "layouts": {
+    "desktop": "Left sidebar (w-64) with minimal icons + text (bg-white, border-r). Main content area fills remaining space with bg-[#F8F9FA]. Top nav for Breadcrumbs and Notification bell.",
+    "mobile": "Bottom navigation bar (fixed, z-50, backdrop-blur-xl). Main content has pb-24 to avoid overlap. Sidebar is hidden.",
+    "dashboard_grid": "Bento style. 4 stat numbers at top (grid-cols-2 lg:grid-cols-4). Main table spanning col-span-full or 2/3 width.",
+    "kanban_board": "Horizontal scrolling container. Columns are w-80, bg-slate-50/50, border border-slate-100, rounded-2xl, p-4. Cards are bg-white, rounded-xl, shadow-sm, p-3."
+  },
+  "components": {
+    "check_in_button": "Massive circular or large pill-shaped button on Dashboard/Mobile home. If checked in, turns to 'Check Out' with red tint. Include a live pulsing dot and a timer (00:00:00) using monospace font (font-mono).",
+    "status_badges": "Pill-shaped (rounded-full px-2.5 py-0.5 text-xs font-medium). Soft backgrounds with dark text (e.g., bg-emerald-100 text-emerald-800 for 'Present', bg-amber-100 text-amber-800 for 'Pending').",
+    "tables": "Minimalist. No vertical borders. border-b on rows. Generous padding (py-4 px-4). Hover state on rows (hover:bg-slate-50/80).",
+    "payslip": "Clean, grid-based layout. Two columns for Earnings vs Deductions. Prominent 'Download PDF' button.",
+    "trello_card": "Minimalist task card. Title (text-sm font-medium), due date badge, assignee avatar (size-6 rounded-full), priority indicator (colored dot).",
+    "sidebar_links": "Subtle hover states (hover:bg-slate-100). Active state gets a soft bg and primary color text."
+  },
+  "motion": {
+    "timer": "Pulsing opacity on a small green/red dot next to the live timer.",
+    "drag_drop": "Card scales down slightly (scale-95) and shadow increases when dragging.",
+    "page_transition": "Simple fade-in (opacity-0 to opacity-100 over 200ms) for tab/page switching."
+  },
+  "libraries": {
+    "icons": "lucide-react (Keep strokes thin, 1.5px)",
+    "drag_drop": "@hello-pangea/dnd (for Kanban)",
+    "date_handling": "date-fns",
+    "pdf_generation": "jspdf or react-to-pdf",
+    "notifications": "sonner"
+  },
+  "image_urls": {
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1630939687530-241d630735df?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBlbXBsb3llZSUyMHBvcnRyYWl0JTIwc21pbGluZ3xlbnwwfHx8fDE3ODc2MzcwNjN8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Avatar for female employee"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1675869940341-d495d49010b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBlbXBsb3llZSUyMHBvcnRyYWl0JTIwc21pbGluZ3xlbnwwfHx8fDE3ODc2MzcwNjN8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Avatar for male employee"
+      }
+    ]
+  },
+  "accessibility": {
+    "contrast": "Ensure text meets APCA/WCAG standards. Text over light backgrounds must be slate-700 or slate-900.",
+    "testing": "All interactive and key informational elements MUST include a `data-testid` attribute. Convention: kebab-case, role-based."
+  },
+  "instructions_to_main_agent": [
+    "Do NOT use 'Inter' for headings. Use 'Outfit' for H1-H4 and 'Figtree' for body.",
+    "Prioritize a clean, white/light-gray layout. Avoid dark mode styling; stick to the light mode aesthetic for this productivity app.",
+    "Implement the Kanban board using @hello-pangea/dnd. Keep it robust, prevent horizontal scroll on the main page layout, keep scroll contained within the Kanban area.",
+    "The Attendance Check-In button must be massively prominent on the Dashboard and Mobile Home screen. It's the primary daily action.",
+    "For Mobile layout, completely hide the side navigation and implement a fixed bottom navigation bar with 5 icons: Home, Attendance, Tasks, Leave, Profile.",
+    "Use Shadcn UI components but modify them: strip away heavy borders, make them look softer (rounded-xl/2xl, minimal light shadows).",
+    "DO NOT overcomplicate the UI. The problem statement emphasizes 'very few buttons, minimal icons'. Every screen must immediately answer 'What do I need to do now?'. Use ample whitespace.",
+    "Add 'data-testid' to all interactive elements for testing.",
+    "Ensure 'date-fns' is used to run the live timer for attendance.",
+    "Implement Payslip with a clean table and a functional PDF download."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Create depth through layered design elements with z-index hierarchy, but keep shadows minimal and elegant.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) strictly for the mobile bottom nav and sticky headers.",
+    "DO NOT apply universal transition (e.g., transition: all). Add specific transitions for interactive elements (opacity, transform, background-color).",
+    "DO NOT center align the app container. No .App { text-align: center; }.",
+    "Use generous padding (p-6, p-8) for breathing room. Cramped designs look cheap.",
+    "NEVER use AI assistant Emoji characters (like 🤖🧠💭💡🔮🎯) for icons. Rely exclusively on lucide-react."
+  ]
+}

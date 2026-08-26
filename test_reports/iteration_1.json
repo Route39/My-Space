@@ -1,0 +1,67 @@
+{
+  "summary": "Full-stack testing of ATTENDY on the public preview URL. Backend: 61 pytest cases across auth, dashboard, employees, attendance, tasks, leave, payroll, notifications, settings and RBAC — 60 passed, 1 failed (payslip IDOR). Frontend: Playwright E2E for Admin (dashboard stats, staff list/search/add, employee profile + salary update, attendance filters + mark dropdown, Kanban create/checklist/comment/status/drag-drop, payroll generate + status, settings), Team Leader (scoped team of 3, leave approve + reject) and Staff (home, check-in/out with live ticking timer, attendance range filters, apply leave, payslip list + PDF download, notification bell mark-all-read, mobile bottom nav). All primary user journeys work. Three real defects found: staff can read every employee record (incl. salaries) via /api/employees, /api/payslip/{id} is an IDOR, admin-only frontend routes are not guarded, plus a UTC/IST timezone defect that produces negative worked hours.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/employees and GET /api/employees/{id}", "issue": "No role scoping for 'staff'. A staff token returns all 13 employees including name, email, phone, department and monthly_salary of every colleague (verified: Priya 120000, Arjun 85000...). Only team_leader is scoped in list_employees(). Salary/PII data leak.", "priority": "CRITICAL"},
+      {"endpoint": "GET /api/payslip/{pid}", "issue": "IDOR — any authenticated user can fetch any other employee's payslip (payroll + employee doc) by id; no ownership/org check. Staff request for another employee's payroll id returned 200. Test: TestPayroll::test_payslip_idor", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/attendance/checkout", "issue": "Negative worked hours accepted. Seed writes today's check_in at office hours interpreted as UTC (e.g. 09:54Z) while now_utc() is ~06:00Z, so hours_between() yields -3.76 and it is stored and shown in UI/payroll ('Today: -4h 14m', Hours '-3.76h'). Root cause: shift start_time (09:30 IST) and seeded check-ins are treated as UTC. Needs a timezone (Asia/Kolkata) for status/hours computation plus a max(0, ...) guard.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "PUT /api/attendance/{att_id}, PUT /api/payroll/{pid}/status, PUT /api/payroll/{pid}/adjust, PUT /api/tasks/{id}/*", "issue": "No org_id filter on attendance/payroll updates and no assignee/role check on task mutation endpoints — any authenticated staff can change status/checklist/comments of any task id in another org/team."},
+      {"endpoint": "PUT /api/leaves/{id}/approve|reject", "issue": "A team_leader can approve/reject a leave belonging to an employee outside their team (leave is fetched by id only, not filtered by team scope)."},
+      {"endpoint": "POST /api/leaves", "issue": "No validation that to_date >= from_date and no check against remaining leave balance; balance can go negative (used_casual can exceed casual)."},
+      {"endpoint": "POST /api/employees", "issue": "email is a plain str with no EmailStr validation and no password strength check; monthly_salary accepts negatives."},
+      {"endpoint": "CORS middleware", "issue": "allow_credentials=True combined with allow_origins default '*' is rejected by browsers for credentialed requests; explicit origins should be configured (works today only because auth uses a Bearer header)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Router (App.js)", "issue": "No role guard on admin routes. Logged in as staff, navigating directly to /staff renders the full Staff module with all 13 employees + 'Add Staff' button; /settings renders company/department/designation/shift editors; /payroll renders the payroll table (API 403 so totals show ₹0 and two uncaught 'Request failed with status code 403' page errors are thrown).", "selector": "/staff, /payroll, /settings", "priority": "CRITICAL"},
+      {"component": "CheckInCard / Attendance", "issue": "Displays negative worked time ('Today: -4h 14m', hours column '-3.76h') for the seeded record — no guard on the UI side either.", "selector": "[data-testid=\"working-timer\"], attendance Hours column", "priority": "HIGH"},
+      {"component": "Payroll / Staff", "issue": "Employee added without a salary shows a ₹0 payroll row and no client-side validation is applied on the Add Staff form (only name+email are required).", "selector": "[data-testid=\"staff-save\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Staff visiting admin pages", "issue": "403 API errors surface as unhandled promise rejections (pageerror) instead of an error/empty state; Payroll page silently shows ₹0.", "affected_selectors": ["[data-testid=\"generate-payroll\"]", "[data-testid=\"payroll-month\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Login", "issues": ["Demo account emails (support@route39.in etc.) are very light grey on white — low contrast, hard to read"]},
+      {"screen": "Add Staff / Create Task / Apply Leave / Attendance / Payroll filters", "issues": ["Uses native browser <input type=date|month|time> pickers instead of the shadcn Calendar component, inconsistent with the rest of the design system"]},
+      {"screen": "Employee Profile", "issues": ["Monthly Salary is an always-editable raw input with an unlabeled icon-only save button; no confirmation or validation", "Attendance/Tasks/Leave/Payroll tabs render only a placeholder sentence — no actual per-employee data"]},
+      {"screen": "All modals", "issues": ["Radix warning: DialogContent missing Description/aria-describedby (a11y)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/cleanup_test_data.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Scope GET /api/employees and GET /api/employees/{id} for role 'staff' (self only, or a minimal directory projection without monthly_salary/phone).",
+    "Add ownership/role check to GET /api/payslip/{pid} — allow only the owning employee or admin/team_leader of that employee.",
+    "Fix timezone handling: compute attendance status/hours in a configured business timezone (Asia/Kolkata) and clamp hours to >= 0 in /api/attendance/checkout; fix seed.py which writes today's check_in as UTC office hours (future timestamps).",
+    "Add role-based route guards in the frontend router so staff/team_leader cannot render /staff, /payroll, /settings; show a 403 fallback instead of throwing unhandled axios errors.",
+    "Add org_id/ownership filters to PUT /api/attendance/{id}, PUT /api/payroll/{pid}/*, and task mutation endpoints; restrict leave approve/reject to the approver's team.",
+    "Validate leave dates (to >= from) and remaining balance before accepting/approving a leave request.",
+    "Add data-testid to the Add Staff salary/designation/shift/role selects and to attendance table rows for reliable automation."
+  ],
+  "critical_code_review_comments": [
+    "server.py list_employees(): the `if user['role'] == 'team_leader'` branch is the only scoping — staff falls through to the org-wide query. This same helper feeds /api/attendance and /api/leaves, so any future staff-accessible endpoint inherits the leak.",
+    "get_payslip() looks up payroll by id only and returns the employee + company documents — must filter by requesting user's employee id / org.",
+    "compute_status() and hours_between() mix naive shift wall-clock times with timezone-aware UTC datetimes; introduce a single tz-aware helper and store dates using the business timezone.",
+    "mark_attendance() is a POST route reused as an internal function from approve_leave(); extract a private helper so the HTTP contract and the internal call don't drift.",
+    "No pagination on list endpoints (to_list(500)) — will silently truncate as the org grows."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/cleanup_test_data.py"
+  ],
+  "success_rate": {"backend": "98% (60/61)", "frontend": "90% (all flows functional; RBAC route guard + negative-hours display failing)"},
+  "seed_data_creation": "Created and then removed: employees 'TEST QA Person' / 'TEST UI Staff', tasks 'TEST Kanban task' / 'TEST UI Kanban Task' / 'TEST leader task', TEST/QA leave requests and a TEST department. EMP1003 salary restored to 42000. Cleanup script: /app/backend/tests/cleanup_test_data.py. Note: leave approvals/rejections performed on Dhanusha's seeded requests and payroll statuses for 2026-08 (Priya=Approved, Dhanusha=Paid) were left as-is; the seeded negative-hours attendance record for Dhanusha on 2026-08-25 is intentionally left in place to reproduce the timezone bug.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "From /app/memory/test_credentials.md — admin support@route39.in/admin123, TL arjun.mehta@attendy.app/password123, staff dhanusha.r@attendy.app/password123. All valid.",
+  "context_for_next_testing_agent": "Run `cd /app/backend && python -m pytest tests/backend_test.py -n 0 -q` (pytest.ini forces -n 2 --dist loadscope which breaks the class-to-class shared state, so use -n 0). Run `python tests/cleanup_test_data.py` afterwards to purge TEST_* data. Verified working end-to-end and not worth re-deep-testing unless changed: login for all 3 roles, admin dashboard stats/activity, staff list+search+add, salary update persistence, attendance date/dept/status filters + mark dropdown, Kanban create/checklist/comment/status-select AND real HTML5 drag-drop persistence, payroll generate/adjust/status + staff payslip visibility gating (Draft hidden, Approved/Paid visible), payslip PDF download (payslip-EMP1003-2026-08.pdf), staff check-in with live ticking timer + checkout, apply leave, TL leave approve/reject with balance deduction + attendance marked 'Leave', notification mark-all-read, mobile bottom nav (390x844). Re-test after fixes: staff scoping on /api/employees, payslip IDOR, frontend route guards for /staff /payroll /settings, and negative worked hours.",
+  "rca_of_the_issue": "1) Data leak: list_employees() only narrows the query for team_leader; staff role reaches the org-wide branch, and the frontend Staff page is reachable by URL because App.js registers routes without role checks. 2) IDOR: get_payslip() resolves payroll purely by path id with no comparison against the caller's employee_id_ref. 3) Negative hours: seed.py builds today's check_in as datetime(y,m,d,9,54,tzinfo=utc) — a timestamp in the future relative to real UTC now (06:00Z) — and checkout computes hours_between(check_in, now_utc()) with no lower bound, storing -3.76h which then propagates into the UI card, attendance table and payroll overtime calculation. The same UTC-vs-IST mismatch makes compute_status() compare a 09:30 IST shift start against UTC clock time, so Present/Late classification is off by the 5:30 offset."
+}

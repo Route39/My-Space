@@ -1,0 +1,39 @@
+{
+  "summary": "Frontend-only regression test of the ATTENDY UI redesign on https://attendy-core.preview.emergentagent.com. Covered: login (all 3 roles + demo prefill + invalid-credential error), admin/TL dashboard (attendance ring + legend, team card w/ avatar group, payroll gradient card, Today's Attendance table, Tasks ring, Recent Activity), staff dashboard (dark 'Your Workday' hero, live timer, My Tasks, Leave ring, Latest Task), staff attendance (Check Out -> completion state, Workday Timeline, Today/Week/Month history filters), admin attendance (status count cards, date/department/status filters, mark-status dropdown w/ revert), Tasks Kanban (card chips/avatars/checklist bars/comment counts, keyboard drag&drop between columns with persistence after reload, detail dialog checklist toggle + add comment + status, Create Task for admin AND team_leader), Staff page (card grid + today's status badges, right-side profile drawer, 'View full profile' -> /staff/:id, search, Add Staff save), Employee profile (gradient header, salary edit persisted + reverted, all 4 tabs), Payroll (gradient total card, stat cards, table, status dropdown Draft->Approved->Draft, Generate), Staff Payslip (sidebar list, premium document preview, PDF download verified: payslip-EMP1003-2026-07.pdf), Leave (staff apply + admin reject), Settings tabs, sidebar collapse/expand, notification bell + mark all read, role route guard (TL /settings -> redirect), logout, and mobile 390x844 (bottom nav Home|Attendance|Tasks|Payroll|Profile, no horizontal scroll on Dashboard/Attendance/Tasks/Payslip). Zero JS console/page errors across all flows. All flows passed; only display/design issues found.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "lib/format.js timeStr()", "issue": "Times are rendered with new Date(iso).toLocaleTimeString('en-IN') without timeZone:'Asia/Kolkata', so timestamps are shown in the BROWSER timezone. In this (UTC) environment every check-in shows as 03:5x am while the shift is displayed as 09:30 AM - 6:30 PM (raw shift string, not TZ-converted). Result: Workday hero/timeline/attendance tables/payslip show inconsistent, apparently wrong IST times. Fix: pass { timeZone: 'Asia/Kolkata' } in timeStr/dateStr/shortDate.", "selector": "table td, [data-testid='working-timer'] sibling 'Check In'", "priority": "MEDIUM"},
+      {"component": "Attendance.jsx Timeline (post check-out)", "issue": "After check-out the timeline renders Check In -> Shift End (6:30 PM) -> Check Out (08:49 am), i.e. events are not in chronological order when an employee checks out before shift end. Order Shift End/Check Out based on actual times.", "selector": "text=Workday Timeline", "priority": "LOW"},
+      {"component": "CheckInCard.jsx progress ring", "issue": "On completion the ring is forced to 100% (value=ringMax) even when only 4h55m of a 9h shift was worked - misleading 'Complete' visual. Consider showing actual worked/shift ratio.", "selector": "[data-testid='check-out-btn'] card", "priority": "LOW"},
+      {"component": "Staff profile drawer (Sheet)", "issue": "Console warning: 'DialogContent requires a DialogTitle for the component to be accessible for screen reader users' - the staff drawer has no SheetTitle (a11y).", "selector": "[data-testid^='staff-row-'] -> [role='dialog']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Global (all pages)", "issues": ["Secondary labels use text-slate-400 (#94a3b8) on white/#F6F8FA -> ~2.6:1 contrast, fails WCAG AA for small text. Affects stat-card labels ('Present/Late/Absent/Leave', 'Total employees', 'days remaining', 'PAYSLIPS', 'Salary Type'), all table headers (text-slate-400 text-xs) and timestamps. Use slate-500/600 for these."]},
+      {"screen": "Attendance (admin), Leave dialog, Settings > Attendance, Payroll", "issues": ["Native browser pickers used instead of shadcn Calendar/Popover: <Input type='date'> (att-date, leave-from, leave-to), <Input type='month'> (payroll-month) and <Input type='time'> (shift start/end). Inconsistent with the redesigned look and OS-dependent."]},
+      {"screen": "Sidebar", "issues": ["Collapse toggle button had no data-testid (added 'sidebar-toggle' during testing)."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_2.json"],
+  "action_items": [
+    "Add timeZone:'Asia/Kolkata' to timeStr/dateStr/shortDate in /app/frontend/src/lib/format.js so IST times render correctly regardless of browser TZ.",
+    "Sort Workday Timeline events chronologically (Check Out before Shift End when checkout < shift end).",
+    "Raise contrast of text-slate-400 secondary labels/table headers to slate-500/600.",
+    "Add a SheetTitle (or VisuallyHidden title) to the staff profile drawer to remove the Radix a11y console warning.",
+    "Optional: replace native date/month/time inputs with shadcn Calendar/time components for visual consistency."
+  ],
+  "critical_code_review_comments": [
+    "Attendance.jsx uses dynamic Tailwind classes text-${c}-600 for the status count cards; they currently resolve only because those literals exist elsewhere in the codebase. Safelist them or use a static map to avoid silent purge breakage.",
+    "Dashboard.jsx AdminHome legend shows 'Present' as present-late, so the label meaning differs from the backend stats.present field - verify intent.",
+    "No DELETE endpoint exists for employees, so staff created via Add Staff cannot be removed from the UI (test data had to be cleaned via Mongo)."
+  ],
+  "updated_files": ["/app/frontend/src/components/Layout.jsx"],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "100% of functional flows passed; 4 display/a11y issues + 3 design issues reported"},
+  "seed_data_creation": "Created and fully cleaned up: task 'TEST_QA_Task' (deleted via UI), task comment 'TEST_comment_qa' (removed via Mongo $pull), employee 'TEST_QA_Employee'/EMP1012 + its user (removed via Mongo), staff leave request 28-Dec-2026 (rejected then removed via Mongo). Checklist toggle on 'Onboard 3 new interns' reverted to unchecked. Salary edit on EMP1000 reverted to 120000. Payroll status Draft restored. Attendance mark Present restored. NOTE (not revertible): staff dhanusha.r was checked out today as part of the required Check Out test, so her 25-Aug attendance now has check_out 08:49 UTC / 4.92h.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "/app/memory/test_credentials.md present and valid for all 3 roles (admin support@route39.in/admin123, TL arjun.mehta@attendy.app/password123, staff dhanusha.r@attendy.app/password123)",
+  "context_for_next_testing_agent": "Frontend redesign verified end-to-end; no functional regressions. Kanban drag&drop must be tested via keyboard (focus card -> Space -> ArrowRight/Left -> Space) since react-beautiful-dnd ignores synthetic mouse drags. Sidebar toggle now has data-testid='sidebar-toggle'. Staff drawer opens as [role='dialog'] from [data-testid^='staff-row-']. Remaining open items are display-only: UTC vs IST time formatting, timeline ordering, slate-400 contrast, native date pickers, Sheet a11y title. Backend untouched since iteration_1.",
+  "rca_of_the_issue": "Time display anomaly (check-ins showing 03:5x am) is NOT a backend bug: timestamps are stored/returned correctly, but the frontend formats them with toLocaleTimeString using the browser's timezone (UTC in the test container) while shift times are printed from raw 'HH:MM' strings. Forcing timeZone:'Asia/Kolkata' in the format helpers makes all displays consistently IST."
+}

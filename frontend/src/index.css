@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Figtree:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #F6F8FA;
+}
+
+h1, h2, h3, h4, .font-heading {
+    font-family: 'Outfit', sans-serif;
+}
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 222 15% 12%;
+        --card: 0 0% 100%;
+        --card-foreground: 222 15% 12%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 222 15% 12%;
+        --primary: 158 64% 39%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 210 20% 96%;
+        --secondary-foreground: 222 15% 20%;
+        --muted: 210 20% 96%;
+        --muted-foreground: 215 16% 47%;
+        --accent: 210 20% 96%;
+        --accent-foreground: 222 15% 20%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 214 20% 91%;
+        --input: 214 20% 91%;
+        --ring: 158 64% 39%;
+        --radius: 0.75rem;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+@keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.fade-in { animation: fade-in 0.3s ease-out; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+.rise { animation: rise 0.45s cubic-bezier(.2,.8,.2,1) both; }
+
+.skeleton {
+    background: linear-gradient(90deg, #eef1f4 25%, #e2e8f0 37%, #eef1f4 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+@keyframes pop { 0% { transform: scale(.5); opacity: 0; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+.pop { animation: pop .5s cubic-bezier(.2,.8,.3,1.4) both; }
+
+.confetti-piece {
+    position: absolute;
+    width: 9px; height: 9px; border-radius: 2px;
+    transform: rotate(var(--a)) translateY(0);
+    animation: burst .95s ease-out forwards;
+}
+@keyframes burst {
+    0% { opacity: 1; transform: rotate(var(--a)) translateY(0) scale(1); }
+    100% { opacity: 0; transform: rotate(var(--a)) translateY(-90px) scale(.3); }
+}
+
+.card-hover { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+.card-hover:hover { transform: translateY(-2px); box-shadow: 0 12px 30px -12px rgba(15,23,42,.14); }
