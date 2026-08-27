@@ -47,7 +47,7 @@ export default function Login() {
           <h1 className="font-heading text-5xl font-bold text-white leading-tight tracking-tight">Attendance.<br />Work.<br />Payroll.</h1>
           <p className="text-white/90 mt-6 text-lg max-w-md">{tenant ? `Sign in to your ${brandName} workspace.` : "The simplest way to manage your team. Open it in 5 seconds and know exactly what to do."}</p>
         </div>
-        <div className="text-white/70 text-sm relative z-10">© 2026 Attendy{tenant ? ` · ${brandName}` : ""}</div>
+        <div className="text-white/70 text-sm relative z-10">© 2026 Attendy</div>
         <div className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-white/10" />
         <div className="absolute top-10 -right-10 w-40 h-40 rounded-full bg-white/10" />
       </div>
