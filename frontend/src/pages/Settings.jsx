@@ -12,15 +12,18 @@ export default function Settings() {
   const [depts, setDepts] = useState([]);
   const [desigs, setDesigs] = useState([]);
   const [shifts, setShifts] = useState([]);
+  const [locs, setLocs] = useState([]);
   const [newDept, setNewDept] = useState("");
   const [newDesig, setNewDesig] = useState("");
+  const [newLoc, setNewLoc] = useState("");
   const [shiftForm, setShiftForm] = useState({ name: "", start_time: "09:30", end_time: "18:30", grace_minutes: 10 });
 
   const load = async () => {
-    const [c, d, dg, s] = await Promise.all([
+    const [c, d, dg, s, loc_res] = await Promise.all([
       api.get("/company"), api.get("/departments"), api.get("/designations"), api.get("/shifts"),
+      api.get("/locations").catch(() => ({ data: [] }))
     ]);
-    setCompany(c.data); setDepts(d.data); setDesigs(dg.data); setShifts(s.data);
+    setCompany(c.data); setDepts(d.data); setDesigs(dg.data); setShifts(s.data); setLocs(loc_res.data);
   };
   useEffect(() => { load(); }, []);
 
@@ -32,6 +35,8 @@ export default function Settings() {
   const delDept = async (id) => { await api.delete(`/departments/${id}`); load(); };
   const addDesig = async () => { if (!newDesig.trim()) return; await api.post("/designations", { name: newDesig }); setNewDesig(""); load(); };
   const delDesig = async (id) => { await api.delete(`/designations/${id}`); load(); };
+  const addLoc = async () => { if (!newLoc.trim()) return; await api.post("/locations", { name: newLoc }); setNewLoc(""); load(); };
+  const delLoc = async (id) => { await api.delete(`/locations/${id}`); load(); };
   const addShift = async () => {
     if (!shiftForm.name.trim()) return;
     await api.post("/shifts", { ...shiftForm, grace_minutes: Number(shiftForm.grace_minutes) });
@@ -62,6 +67,7 @@ export default function Settings() {
         <TabsContent value="staff" className="mt-4 grid md:grid-cols-2 gap-6">
           <ListEditor title="Departments" items={depts} val={newDept} setVal={setNewDept} onAdd={addDept} onDel={delDept} testid="dept" />
           <ListEditor title="Designations" items={desigs} val={newDesig} setVal={setNewDesig} onAdd={addDesig} onDel={delDesig} testid="desig" />
+          <ListEditor title="Locations" items={locs} val={newLoc} setVal={setNewLoc} onAdd={addLoc} onDel={delLoc} testid="loc" />
         </TabsContent>
 
         <TabsContent value="attendance" className="mt-4 space-y-4">

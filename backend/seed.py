@@ -29,7 +29,7 @@ async def seed_all(db):
     org_id = uid()
     await db.companies.insert_one({
         "id": org_id, "name": "Route39 Technologies",
-        "address": "4th Floor, WeWork, Prestige Central, Bengaluru 560001",
+        "address": "4th Floor, WeWork, Prestige Central, Tirupur 641601",
         "logo": "",
     })
 
@@ -61,7 +61,7 @@ async def seed_all(db):
         "phone": "+91 98450 10000", "department": "HR", "designation": "Manager",
         "joining_date": "2021-04-01", "team_leader_id": None, "photo": AV_F,
         "monthly_salary": 120000, "salary_type": "Monthly",
-        "shift_id": shift["id"], "location": "Bengaluru", "status": "Active",
+        "shift_id": shift["id"], "location": "Tirupur", "status": "Active",
     })
     await db.users.insert_one({
         "id": admin_user_id, "org_id": org_id, "email": admin_email,
@@ -85,7 +85,7 @@ async def seed_all(db):
             "phone": f"+91 98450 1{code}", "department": dept, "designation": "Team Lead",
             "joining_date": "2022-06-15", "team_leader_id": None, "photo": av,
             "monthly_salary": 85000, "salary_type": "Monthly",
-            "shift_id": shift["id"], "location": "Bengaluru", "status": "Active",
+            "shift_id": shift["id"], "location": "Tirupur", "status": "Active",
         })
         await db.users.insert_one({
             "id": user_id, "org_id": org_id, "email": email,
@@ -119,7 +119,7 @@ async def seed_all(db):
             "phone": f"+91 98450 1{code}", "department": dept, "designation": desig,
             "joining_date": "2023-01-10", "team_leader_id": tl, "photo": av,
             "monthly_salary": sal, "salary_type": "Monthly",
-            "shift_id": shift["id"], "location": "Bengaluru", "status": "Active",
+            "shift_id": shift["id"], "location": "Tirupur", "status": "Active",
         })
         await db.users.insert_one({
             "id": user_id, "org_id": org_id, "email": email,

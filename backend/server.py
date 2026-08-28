@@ -148,9 +148,14 @@ class EmployeeIn(BaseModel):
     salary_type: str = "Monthly"
     shift_id: Optional[str] = None
     location: str = ""
+    work_mode: str = "Office"
     role: str = "staff"
     password: Optional[str] = None
 
+
+
+class LocationIn(BaseModel):
+    name: str
 
 class DepartmentIn(BaseModel):
     name: str
@@ -566,7 +571,8 @@ async def create_employee(body: EmployeeIn, user: dict = Depends(require_roles("
         "designation": body.designation, "joining_date": body.joining_date or now_utc().date().isoformat(),
         "team_leader_id": body.team_leader_id, "photo": body.photo,
         "monthly_salary": body.monthly_salary, "salary_type": body.salary_type,
-        "shift_id": body.shift_id, "location": body.location, "status": "Active",
+        "shift_id": body.shift_id, "location": body.location, 
+        "work_mode": body.work_mode, "status": "Active",
     }
     await db.employees.insert_one(emp)
     await db.users.insert_one({
@@ -601,9 +607,35 @@ async def update_employee(emp_id: str, body: EmployeeIn, user: dict = Depends(re
     existing = await db.employees.find_one({"id": emp_id, "org_id": user["org_id"]}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Not found")
-    upd = body.model_dump(exclude={"password", "role", "email"})
+    
+    email = body.email.lower().strip() if body.email else ""
+    upd = body.model_dump(exclude={"password", "role"})
+    upd["email"] = email
+    
     await db.employees.update_one({"id": emp_id, "org_id": user["org_id"]}, {"$set": upd})
+    
+    user_upd = {"email": email, "phone": body.phone}
+    if body.password:
+        user_upd["password_hash"] = hash_password(body.password)
+    if body.role:
+        user_upd["role"] = body.role
+        
+    await db.users.update_one({"employee_id_ref": emp_id, "org_id": user["org_id"]}, {"$set": user_upd})
     return await db.employees.find_one({"id": emp_id, "org_id": user["org_id"]}, {"_id": 0})
+
+@api.delete("/employees/{emp_id}")
+async def delete_employee(emp_id: str, user: dict = Depends(require_roles("admin"))):
+    existing = await db.employees.find_one({"id": emp_id, "org_id": user["org_id"]}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Not found")
+        
+    await db.employees.delete_one({"id": emp_id})
+    await db.users.delete_one({"employee_id_ref": emp_id})
+    await db.attendance.delete_many({"employee_id": emp_id})
+    await db.leaves.delete_many({"employee_id": emp_id})
+    await db.payroll.delete_many({"employee_id": emp_id})
+    
+    return {"message": "Staff deleted"}
 
 
 @api.put("/employees/{emp_id}/salary")

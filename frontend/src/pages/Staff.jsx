@@ -24,19 +24,21 @@ export default function Staff() {
   const [depts, setDepts] = useState([]);
   const [desigs, setDesigs] = useState([]);
   const [shifts, setShifts] = useState([]);
+  const [locs, setLocs] = useState([]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [drawer, setDrawer] = useState(null);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "Bengaluru", role: "staff" });
   const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "", role: "staff", work_mode: "Office" });
 
   const load = async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const [e, d, dg, s, att] = await Promise.all([
+    const [e, d, dg, s, att, loc_res] = await Promise.all([
       api.get("/employees"), api.get("/departments"), api.get("/designations"), api.get("/shifts"),
       api.get("/attendance", { params: { date: today } }).catch(() => ({ data: [] })),
+      api.get("/locations").catch(() => ({ data: [] }))
     ]);
-    setEmps(e.data); setDepts(d.data); setDesigs(dg.data); setShifts(s.data);
+    setEmps(e.data); setDepts(d.data); setDesigs(dg.data); setShifts(s.data); setLocs(loc_res.data);
     const m = {}; att.data.forEach((r) => { m[r.employee_id] = r.status; }); setStatusMap(m);
   };
   useEffect(() => { load(); }, []);
@@ -46,7 +48,7 @@ export default function Staff() {
     try {
       await api.post("/employees", { ...form, monthly_salary: Number(form.monthly_salary) || 0 });
       toast.success("Staff added"); setOpen(false);
-      setForm({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "Bengaluru", role: "staff" });
+      setForm({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "", role: "staff", work_mode: "Office" });
       load();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
     setBusy(false);
@@ -65,8 +67,8 @@ export default function Staff() {
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2"><Label>Full name</Label><Input data-testid="staff-name" className="rounded-xl mt-1" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div><Label>Email (Optional)</Label><Input data-testid="staff-email" className="rounded-xl mt-1" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-              <div><Label>Username / Phone</Label><Input className="rounded-xl mt-1" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required /></div>
-              <div className="col-span-2"><Label>Password</Label><Input type="text" placeholder="Set staff password" className="rounded-xl mt-1" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
+              <div><Label>Username / Phone</Label><Input className="rounded-xl mt-1" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+              <div className="col-span-2"><Label>Password</Label><Input type="text" placeholder="Set staff password (defaults to password123)" className="rounded-xl mt-1" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><p className="text-xs text-slate-500 mt-1">If left blank, the staff can log in using <b>password123</b></p></div>
               <div><Label>Department</Label>
                 <Select value={form.department} onValueChange={(v) => setForm({ ...form, department: v })}>
                   <SelectTrigger className="rounded-xl mt-1" data-testid="staff-department"><SelectValue placeholder="Select" /></SelectTrigger>
@@ -92,8 +94,20 @@ export default function Staff() {
                   <SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="team_leader">Team Leader</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent>
                 </Select>
               </div>
+              <div><Label>Work Mode</Label>
+                <Select value={form.work_mode || "Office"} onValueChange={(v) => setForm({ ...form, work_mode: v })}>
+                  <SelectTrigger className="rounded-xl mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="Office">Office</SelectItem><SelectItem value="Work from Home">Work from Home</SelectItem><SelectItem value="Hybrid">Hybrid</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div><Label>Location</Label>
+                <Select value={form.location} onValueChange={(v) => setForm({ ...form, location: v })}>
+                  <SelectTrigger className="rounded-xl mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{locs.map((l) => <SelectItem key={l.id} value={l.name}>{l.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             </div>
-            <DialogFooter><Button data-testid="staff-save" onClick={submit} disabled={busy || !form.name || !form.phone || !form.password} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Saving…" : "Add Staff"}</Button></DialogFooter>
+            <DialogFooter><Button data-testid="staff-save" onClick={submit} disabled={busy} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Saving…" : "Add Staff"}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
