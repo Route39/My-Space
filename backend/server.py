@@ -506,6 +506,23 @@ async def del_designation(des_id: str, user: dict = Depends(require_roles("admin
     return {"ok": True}
 
 
+@api.get("/locations")
+async def list_locations(user: dict = Depends(get_current_user)):
+    return await db.locations.find({"org_id": user["org_id"]}, {"_id": 0}).to_list(200)
+
+@api.post("/locations")
+async def add_location(body: LocationIn, user: dict = Depends(require_roles("admin"))):
+    doc = {"id": uid(), "org_id": user["org_id"], "name": body.name}
+    await db.locations.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/locations/{loc_id}")
+async def del_location(loc_id: str, user: dict = Depends(require_roles("admin"))):
+    await db.locations.delete_one({"id": loc_id, "org_id": user["org_id"]})
+    return {"ok": True}
+
+
 @api.get("/shifts")
 async def list_shifts(user: dict = Depends(get_current_user)):
     return await db.shifts.find({"org_id": user["org_id"]}, {"_id": 0}).to_list(200)
