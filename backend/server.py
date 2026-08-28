@@ -1359,7 +1359,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    await db.users.create_index("email", unique=True)
+    # await db.users.create_index("email", unique=True)
     from seed import seed_all
     await seed_all(db)
     await run_migrations()
