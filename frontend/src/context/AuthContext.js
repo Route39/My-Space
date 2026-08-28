@@ -32,9 +32,9 @@ export function AuthProvider({ children }) {
     if (slug) api.get(`/tenant/${slug}`).then((r) => setTenant(r.data)).catch(() => {});
   }, [loadMe]);
 
-  const login = async (email, password) => {
+  const login = async (username, password) => {
     const slug = getTenantSlug();
-    const { data } = await api.post("/auth/login", { email, password, tenant_slug: slug || undefined });
+    const { data } = await api.post("/auth/login", { username, password, tenant_slug: slug || undefined });
     localStorage.setItem("attendy_token", data.token);
     setUser(data.user);
     const me = await api.get("/auth/me");

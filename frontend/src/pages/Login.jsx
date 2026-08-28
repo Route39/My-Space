@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 export default function Login() {
   const { login, tenant } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
@@ -24,7 +24,7 @@ export default function Login() {
     setError("");
     setBusy(true);
     try {
-      await login(email, password);
+      await login(username, password);
       navigate("/");
     } catch (err) {
       setError(apiErr(err.response?.data?.detail) || "Login failed");
@@ -65,8 +65,8 @@ export default function Login() {
 
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <Label htmlFor="email" className="text-slate-700">Email</Label>
-              <Input id="email" data-testid="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className="mt-1.5 rounded-xl h-11" required />
+              <Label htmlFor="username" className="text-slate-700">Username / Phone</Label>
+              <Input id="username" data-testid="login-email" type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter your username or phone" className="mt-1.5 rounded-xl h-11" required />
             </div>
             <div>
               <Label htmlFor="password" className="text-slate-700">Password</Label>
@@ -79,23 +79,6 @@ export default function Login() {
             <Button type="submit" data-testid="login-submit" disabled={busy} style={{ backgroundColor: accent }} className="w-full h-11 rounded-xl hover:opacity-90 font-medium text-white">{busy ? "Signing in…" : "Sign in"}</Button>
           </form>
 
-          {!tenant && (
-            <div className="mt-6 p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <p className="text-xs text-slate-400 mb-2">Demo accounts (tap to fill)</p>
-              <div className="space-y-1.5">
-                {[["Admin", "support@route39.in"], ["Team Leader", "arjun.mehta@attendy.app"], ["Staff", "dhanusha.r@attendy.app"]].map(([r, em]) => (
-                  <button key={em} onClick={() => quick(em)} data-testid={`demo-${r.toLowerCase().replace(" ", "-")}`} className="w-full flex items-center justify-between text-left px-3 py-1.5 rounded-lg hover:bg-white text-xs">
-                    <span className="font-medium text-slate-600">{r}</span>
-                    <span className="text-slate-500">{em}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!tenant && (
-            <p className="text-center text-sm text-slate-500 mt-6">New company? <Link to="/signup" data-testid="goto-signup" className="font-medium" style={{ color: accent }}>Create a workspace</Link></p>
-          )}
         </div>
       </div>
     </div>

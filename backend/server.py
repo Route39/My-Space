@@ -118,7 +118,7 @@ async def log_activity(org_id: str, message: str):
 
 # ---------------- models ----------------
 class LoginIn(BaseModel):
-    email: str
+    username: str
     password: str
     tenant_slug: Optional[str] = None
 
@@ -137,7 +137,7 @@ class PlatformStatusIn(BaseModel):
 
 class EmployeeIn(BaseModel):
     name: str
-    email: str
+    email: str = ""
     phone: str = ""
     department: str = ""
     designation: str = ""
@@ -417,10 +417,10 @@ async def platform_set_status(org_id: str, body: PlatformStatusIn, user: dict = 
 # ---------------- auth routes ----------------
 @api.post("/auth/login")
 async def login(body: LoginIn):
-    email = body.email.lower().strip()
-    user = await db.users.find_one({"email": email})
+    username = body.username.lower().strip()
+    user = await db.users.find_one({"$or": [{"email": username}, {"phone": username}]})
     if not user or not verify_password(body.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid username, email or password")
     if user["role"] != "super_admin":
         company = await db.companies.find_one({"id": user.get("org_id")})
         if not company:
@@ -547,10 +547,15 @@ async def list_employees(user: dict = Depends(get_current_user)):
 
 @api.post("/employees")
 async def create_employee(body: EmployeeIn, user: dict = Depends(require_roles("admin"))):
-    email = body.email.lower().strip()
-    existing = await db.users.find_one({"email": email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already exists")
+    email = body.email.lower().strip() if body.email else ""
+    if email:
+        existing = await db.users.find_one({"email": email})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already exists")
+    if body.phone:
+        existing_phone = await db.users.find_one({"phone": body.phone})
+        if existing_phone:
+            raise HTTPException(status_code=400, detail="Phone number already in use")
     emp_id = uid()
     user_id = uid()
     code = await next_emp_code(user["org_id"])
@@ -565,7 +570,7 @@ async def create_employee(body: EmployeeIn, user: dict = Depends(require_roles("
     }
     await db.employees.insert_one(emp)
     await db.users.insert_one({
-        "id": user_id, "org_id": user["org_id"], "email": email,
+        "id": user_id, "org_id": user["org_id"], "email": email, "phone": body.phone,
         "password_hash": hash_password(body.password or "password123"),
         "name": body.name, "role": body.role, "employee_id_ref": emp_id,
         "created_at": now_utc().isoformat(),

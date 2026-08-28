@@ -27,7 +27,7 @@ export default function Staff() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [drawer, setDrawer] = useState(null);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "Bengaluru", role: "staff" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "Bengaluru", role: "staff" });
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -64,8 +64,9 @@ export default function Staff() {
             <DialogHeader><DialogTitle className="font-heading">Add Staff</DialogTitle></DialogHeader>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2"><Label>Full name</Label><Input data-testid="staff-name" className="rounded-xl mt-1" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-              <div><Label>Email</Label><Input data-testid="staff-email" className="rounded-xl mt-1" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-              <div><Label>Phone</Label><Input className="rounded-xl mt-1" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+              <div><Label>Email (Optional)</Label><Input data-testid="staff-email" className="rounded-xl mt-1" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+              <div><Label>Username / Phone</Label><Input className="rounded-xl mt-1" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required /></div>
+              <div className="col-span-2"><Label>Password</Label><Input type="text" placeholder="Set staff password" className="rounded-xl mt-1" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></div>
               <div><Label>Department</Label>
                 <Select value={form.department} onValueChange={(v) => setForm({ ...form, department: v })}>
                   <SelectTrigger className="rounded-xl mt-1" data-testid="staff-department"><SelectValue placeholder="Select" /></SelectTrigger>
