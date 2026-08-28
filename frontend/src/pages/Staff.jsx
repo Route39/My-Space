@@ -46,7 +46,7 @@ export default function Staff() {
     try {
       await api.post("/employees", { ...form, monthly_salary: Number(form.monthly_salary) || 0 });
       toast.success("Staff added"); setOpen(false);
-      setForm({ name: "", email: "", phone: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "Bengaluru", role: "staff" });
+      setForm({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "Bengaluru", role: "staff" });
       load();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
     setBusy(false);
@@ -93,8 +93,7 @@ export default function Staff() {
                 </Select>
               </div>
             </div>
-            <p className="text-xs text-slate-400">Default password is <b>password123</b>. Staff can log in with their email.</p>
-            <DialogFooter><Button data-testid="staff-save" onClick={submit} disabled={busy || !form.name || !form.email} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Saving…" : "Add Staff"}</Button></DialogFooter>
+            <DialogFooter><Button data-testid="staff-save" onClick={submit} disabled={busy || !form.name || !form.phone || !form.password} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Saving…" : "Add Staff"}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
