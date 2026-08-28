@@ -116,7 +116,7 @@ export default function EmployeeProfile() {
       </div>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="rounded-2xl max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="rounded-2xl max-w-lg max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
           <DialogHeader><DialogTitle className="font-heading">Edit Staff Details</DialogTitle></DialogHeader>
           {form && (
             <div className="grid grid-cols-2 gap-3">
