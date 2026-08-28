@@ -960,18 +960,20 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         salary = e.get("monthly_salary", 0)
         per_day = salary / wd if wd else 0
         att = await db.attendance.find({"employee_id": e["id"], "date": {"$regex": f"^{month}"}}, {"_id": 0}).to_list(200)
-        lop_days = 0
+        present_days = 0
         overtime_hours = 0
         for a in att:
-            if a["status"] == "Absent":
-                lop_days += 1
+            if a["status"] == "Present":
+                present_days += 1
             if a.get("hours", 0) > 9:
                 overtime_hours += a["hours"] - 9
-        # unpaid approved leaves
-        unpaid = await db.leaves.find({"employee_id": e["id"], "status": "Approved",
-                                       "leave_type": "Unpaid Leave", "from_date": {"$regex": f"^{month}"}}, {"_id": 0}).to_list(50)
-        for l in unpaid:
-            lop_days += l["days"]
+        # paid approved leaves
+        paid_leaves = await db.leaves.find({"employee_id": e["id"], "status": "Approved",
+                                       "leave_type": {"$ne": "Unpaid Leave"}, "from_date": {"$regex": f"^{month}"}}, {"_id": 0}).to_list(50)
+        paid_leave_days = sum(l["days"] for l in paid_leaves)
+        
+        payable_days = present_days + paid_leave_days
+        lop_days = max(0, wd - payable_days)
         lop = round(per_day * lop_days, 2)
         overtime = round((per_day / 8) * overtime_hours, 2)
         incentive = 0
