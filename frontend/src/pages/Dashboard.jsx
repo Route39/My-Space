@@ -5,6 +5,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, StatusBadge } from "@/components/common";
 import CheckInCard from "@/components/CheckInCard";
+import AnnouncementsSection from "@/components/Announcements";
 import { ProgressRing, MiniProgress, AvatarGroup, CardSkeleton, RowsSkeleton } from "@/components/ui-bits";
 import { money, timeStr, shortDate } from "@/lib/format";
 
@@ -18,11 +19,20 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [today, setToday] = useState(null);
   const [shift, setShift] = useState(null);
+  const [announcements, setAnnouncements] = useState([]);
   const navigate = useNavigate();
 
   const load = async () => {
-    const [d, att] = await Promise.all([api.get("/dashboard"), api.get("/attendance/me", { params: { range: "today" } }).catch(() => ({ data: { today: null } }))]);
-    setData(d.data); setToday(att.data.today);
+    const [d, att] = await Promise.all([
+      api.get("/dashboard"), 
+      api.get("/attendance/me", { params: { range: "today" } }).catch(() => ({ data: { today: null } }))
+    ]);
+    setData(d.data); 
+    setToday(att.data.today);
+
+    api.get("/announcements")
+      .then((res) => setAnnouncements(res.data))
+      .catch(() => setAnnouncements([]));
   };
   useEffect(() => {
     load();
@@ -45,6 +55,10 @@ export default function Dashboard() {
       <div className="rise">
         <h1 className="font-heading text-3xl font-bold text-slate-900 tracking-tight">{greeting()}, {user.name.split(" ")[0]} 👋</h1>
         <p className="text-slate-500 mt-1">{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+      </div>
+
+      <div className="rise" style={{ animationDelay: "30ms" }}>
+        <AnnouncementsSection announcements={announcements} isAdmin={isAdmin} reload={load} />
       </div>
 
       {isAdmin ? <AdminHome data={data} today={today} shift={shift} navigate={navigate} /> : <StaffHome data={data} today={today} shift={shift} reload={load} navigate={navigate} />}

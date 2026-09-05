@@ -229,7 +229,12 @@ export default function EmployeeProfile() {
           {leaves.length === 0 && <div className="rounded-2xl bg-white border border-slate-200"><EmptyState title="No leave records" /></div>}
           {leaves.map((l) => (
             <div key={l.id} className="rounded-xl bg-white border border-slate-200 p-4 flex items-center justify-between">
-              <div><p className="font-medium text-slate-700">{l.leave_type}</p><p className="text-xs text-slate-400">{shortDate(l.from_date)} → {shortDate(l.to_date)} · {l.days}d</p></div>
+              <div>
+                <p className="font-medium text-slate-700">{l.leave_type}</p>
+                <p className="text-xs text-slate-400">
+                  {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""} · {shortDate(l.from_date)}{l.category === "Full Day" ? ` → ${shortDate(l.to_date)}` : ""}
+                </p>
+              </div>
               <StatusBadge status={l.status} />
             </div>
           ))}

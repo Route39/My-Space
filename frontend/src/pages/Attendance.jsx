@@ -134,13 +134,13 @@ function AdminAttendance({ user }) {
 
   const mark = async (empId, st) => { await api.post("/attendance/mark", null, { params: { employee_id: empId, date, status: st } }); toast.success("Attendance updated"); load(); };
 
-  const counts = { Present: 0, Late: 0, Absent: 0, Leave: 0 };
+  const counts = { Present: 0, Late: 0, "Half Day": 0, Permission: 0, Absent: 0, Leave: 0 };
   rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[["Present", "text-emerald-600"], ["Late", "text-amber-600"], ["Absent", "text-red-600"], ["Leave", "text-blue-600"]].map(([k, c]) => (
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        {[["Present", "text-emerald-600"], ["Late", "text-red-600"], ["Half Day", "text-red-600"], ["Permission", "text-amber-600"], ["Absent", "text-red-600"], ["Leave", "text-blue-600"]].map(([k, c]) => (
           <div key={k} className="rounded-2xl bg-white border border-slate-200 p-4">
             <p className={`font-heading text-2xl font-bold ${c}`}>{counts[k]}</p>
             <p className="text-xs text-slate-500">{k}</p>

@@ -68,10 +68,10 @@ export default function Layout({ children }) {
   const { user, employee, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(localStorage.getItem("attendy_collapsed") === "1");
+  const [collapsed, setCollapsed] = useState(localStorage.getItem("myspace_collapsed") === "1");
   const nav = ALL_NAV.filter((n) => n.roles.includes(user.role));
   const roleLabel = { admin: "Admin", team_leader: "Team Leader", staff: "Staff" }[user.role];
-  const title = TITLES[location.pathname] || (location.pathname.startsWith("/staff/") ? "Staff" : "Attendy");
+  const title = TITLES[location.pathname] || (location.pathname.startsWith("/staff/") ? "Staff" : "MySpace");
   const payrollTo = user.role === "staff" ? "/payslip" : "/payroll";
   const MOBILE_NAV = [
     { to: "/", label: "Home", icon: Home },
@@ -80,7 +80,7 @@ export default function Layout({ children }) {
     { to: "/myspace", label: "My Space", icon: NotebookPen },
     { to: "/profile", label: "Profile", icon: User },
   ];
-  const toggle = () => { const v = !collapsed; setCollapsed(v); localStorage.setItem("attendy_collapsed", v ? "1" : "0"); };
+  const toggle = () => { const v = !collapsed; setCollapsed(v); localStorage.setItem("myspace_collapsed", v ? "1" : "0"); };
   const sw = collapsed ? "md:w-20" : "md:w-64";
   const pad = collapsed ? "md:pl-20" : "md:pl-64";
 
@@ -91,7 +91,7 @@ export default function Layout({ children }) {
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/25 shrink-0">
             <Clock className="w-5 h-5 text-white" strokeWidth={2} />
           </div>
-          {!collapsed && <div><p className="font-heading font-bold text-lg text-slate-900 leading-none">Attendy</p><p className="text-[10px] text-slate-400 mt-0.5">Attendance · Work · Payroll</p></div>}
+          {!collapsed && <div><p className="font-heading font-bold text-lg text-slate-900 leading-none">MySpace</p><p className="text-[10px] text-slate-400 mt-0.5">Attendance · Work · Payroll</p></div>}
         </div>
         <nav className="flex-1 px-3 space-y-1 mt-2">
           {nav.map((item) => (
@@ -121,7 +121,7 @@ export default function Layout({ children }) {
             <div className="flex items-center gap-2">
               <div className="md:hidden w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center"><Clock className="w-4 h-4 text-white" /></div>
               <h1 className="font-heading text-lg font-semibold text-slate-800 hidden md:block">{title}</h1>
-              <span className="font-heading font-bold text-slate-900 md:hidden">Attendy</span>
+              <span className="font-heading font-bold text-slate-900 md:hidden">MySpace</span>
             </div>
             <div className="flex items-center gap-1">
               <NotificationBell />

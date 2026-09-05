@@ -27,7 +27,7 @@ export default function Leave() {
 function StaffLeave() {
   const [data, setData] = useState({ balance: null, leaves: [] });
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "" });
+  const [form, setForm] = useState({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1" });
   const [busy, setBusy] = useState(false);
 
   const load = async () => { const { data } = await api.get("/leaves/me"); setData(data); };
@@ -36,10 +36,12 @@ function StaffLeave() {
   const submit = async () => {
     setBusy(true);
     try {
-      await api.post("/leaves", form);
+      const payload = { ...form };
+      if (payload.category !== "Full Day") payload.to_date = payload.from_date;
+      await api.post("/leaves", payload);
       toast.success("Leave applied");
       setOpen(false);
-      setForm({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "" });
+      setForm({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1" });
       load();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
     setBusy(false);
@@ -61,20 +63,54 @@ function StaffLeave() {
           <DialogContent className="rounded-2xl max-w-md">
             <DialogHeader><DialogTitle className="font-heading">Apply Leave</DialogTitle></DialogHeader>
             <div className="space-y-3">
-              <div><Label>Leave type</Label>
-                <Select value={form.leave_type} onValueChange={(v) => setForm({ ...form, leave_type: v })}>
-                  <SelectTrigger className="rounded-xl mt-1" data-testid="leave-type"><SelectValue /></SelectTrigger>
-                  <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label>From</Label><Input type="date" data-testid="leave-from" className="rounded-xl mt-1" value={form.from_date} onChange={(e) => setForm({ ...form, from_date: e.target.value })} /></div>
-                <div><Label>To</Label><Input type="date" data-testid="leave-to" className="rounded-xl mt-1" value={form.to_date} onChange={(e) => setForm({ ...form, to_date: e.target.value })} /></div>
+                <div>
+                  <Label>Category</Label>
+                  <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                    <SelectTrigger className="rounded-xl mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Full Day">Full Day</SelectItem>
+                      <SelectItem value="Half Day">Half Day</SelectItem>
+                      <SelectItem value="Permission">Permission</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Leave type</Label>
+                  <Select value={form.leave_type} onValueChange={(v) => setForm({ ...form, leave_type: v })}>
+                    <SelectTrigger className="rounded-xl mt-1" data-testid="leave-type"><SelectValue /></SelectTrigger>
+                    <SelectContent>{TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
               </div>
+
+              {form.category === "Full Day" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>From</Label><Input type="date" className="rounded-xl mt-1" value={form.from_date} onChange={(e) => setForm({ ...form, from_date: e.target.value })} /></div>
+                  <div><Label>To</Label><Input type="date" className="rounded-xl mt-1" value={form.to_date} onChange={(e) => setForm({ ...form, to_date: e.target.value })} /></div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Date</Label><Input type="date" className="rounded-xl mt-1" value={form.from_date} onChange={(e) => setForm({ ...form, from_date: e.target.value })} /></div>
+                  {form.category === "Half Day" && (
+                    <div><Label>Half Type</Label>
+                      <Select value={form.half_day_type} onValueChange={(v) => setForm({ ...form, half_day_type: v })}>
+                        <SelectTrigger className="rounded-xl mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent><SelectItem value="1st Half">1st Half</SelectItem><SelectItem value="2nd Half">2nd Half</SelectItem></SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {form.category === "Permission" && (
+                    <div><Label>Hours Early</Label>
+                      <Input type="number" min="1" max="8" className="rounded-xl mt-1" value={form.permission_hours} onChange={(e) => setForm({ ...form, permission_hours: e.target.value })} />
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div><Label>Reason</Label><Textarea className="rounded-xl mt-1" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
             </div>
             <DialogFooter>
-              <Button data-testid="leave-submit" onClick={submit} disabled={busy || !form.from_date || !form.to_date} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Applying…" : "Apply"}</Button>
+              <Button data-testid="leave-submit" onClick={submit} disabled={busy || !form.from_date || (form.category === "Full Day" && !form.to_date)} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Applying…" : "Apply"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -99,9 +135,14 @@ function StaffLeave() {
               {data.leaves.length === 0 && <tr><td colSpan={5} className="px-5 py-8 text-center text-slate-400">No leave applied yet</td></tr>}
               {data.leaves.map((l) => (
                 <tr key={l.id} className="border-t border-slate-50">
-                  <td className="px-5 py-3 font-medium text-slate-700">{l.leave_type}</td>
+                  <td className="px-5 py-3 font-medium text-slate-700">
+                    {l.leave_type}
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""}
+                    </div>
+                  </td>
                   <td className="px-3 py-3 text-slate-600">{shortDate(l.from_date)}</td>
-                  <td className="px-3 py-3 text-slate-600">{shortDate(l.to_date)}</td>
+                  <td className="px-3 py-3 text-slate-600">{l.category === "Full Day" ? shortDate(l.to_date) : "-"}</td>
                   <td className="px-3 py-3 text-slate-600">{l.days}</td>
                   <td className="px-5 py-3"><StatusBadge status={l.status} /></td>
                 </tr>
@@ -116,6 +157,7 @@ function StaffLeave() {
 
 function ManagerLeave() {
   const [leaves, setLeaves] = useState([]);
+  const [search, setSearch] = useState("");
   const load = async () => { const { data } = await api.get("/leaves"); setLeaves(data); };
   useEffect(() => { load(); }, []);
 
@@ -142,7 +184,9 @@ function ManagerLeave() {
                 <Avatar name={l.employee_name} size={38} />
                 <div>
                   <p className="font-medium text-slate-800">{l.employee_name}</p>
-                  <p className="text-xs text-slate-400">{l.leave_type} · {dateStr(l.from_date)} → {dateStr(l.to_date)} · {l.days}d</p>
+                  <p className="text-xs text-slate-400">
+                    {l.leave_type} · {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""} · {dateStr(l.from_date)}{l.category === "Full Day" ? ` → ${dateStr(l.to_date)}` : ""}
+                  </p>
                   {l.reason && <p className="text-xs text-slate-500 mt-0.5">"{l.reason}"</p>}
                 </div>
               </div>
@@ -156,7 +200,15 @@ function ManagerLeave() {
       </div>
 
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100"><h2 className="font-heading font-semibold text-slate-800">History</h2></div>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-heading font-semibold text-slate-800">History</h2>
+          <Input 
+            placeholder="Search staff..." 
+            value={search} 
+            onChange={(e) => setSearch(e.target.value)} 
+            className="w-48 h-8 text-sm rounded-lg"
+          />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-slate-500 text-xs">
@@ -165,11 +217,22 @@ function ManagerLeave() {
               <th className="font-medium px-5 py-2">Status</th>
             </tr></thead>
             <tbody>
-              {others.map((l) => (
+              {others
+                .filter(l => !search || l.employee_name.toLowerCase().includes(search.toLowerCase()))
+                .map((l) => (
                 <tr key={l.id} className="border-t border-slate-50">
-                  <td className="px-5 py-3 font-medium text-slate-700">{l.employee_name}</td>
-                  <td className="px-3 py-3 text-slate-600">{l.leave_type}</td>
-                  <td className="px-3 py-3 text-slate-600">{shortDate(l.from_date)} → {shortDate(l.to_date)}</td>
+                  <td className="px-5 py-3 font-medium text-slate-700">
+                    {l.employee_name}
+                  </td>
+                  <td className="px-3 py-3 text-slate-600">
+                    {l.leave_type}
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-slate-600">
+                    {shortDate(l.from_date)}{l.category === "Full Day" ? ` → ${shortDate(l.to_date)}` : ""}
+                  </td>
                   <td className="px-3 py-3 text-slate-600">{l.days}</td>
                   <td className="px-5 py-3"><StatusBadge status={l.status} /></td>
                 </tr>

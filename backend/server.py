@@ -153,6 +153,20 @@ class EmployeeIn(BaseModel):
     password: Optional[str] = None
 
 
+class UserProfileUpdateIn(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+
+
+class AnnouncementIn(BaseModel):
+    title: str
+    type: str
+    message: str
+    link_url: Optional[str] = None
+    image_data: Optional[str] = None
+
+
 
 class LocationIn(BaseModel):
     name: str
@@ -183,6 +197,9 @@ class LeaveIn(BaseModel):
     from_date: str
     to_date: str
     reason: str = ""
+    category: str = "Full Day"
+    half_day_type: Optional[str] = None
+    permission_hours: Optional[str] = None
 
 
 class TaskIn(BaseModel):
@@ -252,11 +269,14 @@ async def get_employee_for_user(user: dict) -> Optional[dict]:
 
 
 def compute_status(check_in_iso: str, shift: Optional[dict]) -> str:
-    if not shift:
-        return "Present"
     ci = datetime.fromisoformat(check_in_iso)
-    sh, sm = parse_hm(shift["start_time"])
-    grace = shift.get("grace_minutes", 10)
+    if shift and shift.get("start_time"):
+        sh, sm = parse_hm(shift["start_time"])
+        grace = shift.get("grace_minutes", 10)
+    else:
+        sh, sm = 9, 30
+        grace = 10
+        
     start = ci.replace(hour=sh, minute=sm, second=0, microsecond=0)
     if ci > start + timedelta(minutes=grace):
         return "Late"
@@ -655,6 +675,27 @@ async def delete_employee(emp_id: str, user: dict = Depends(require_roles("admin
     return {"message": "Staff deleted"}
 
 
+@api.put("/users/me")
+async def update_my_profile(body: UserProfileUpdateIn, user: dict = Depends(get_current_user)):
+    updates = {}
+    if body.name:
+        updates["name"] = body.name
+    if body.email:
+        updates["email"] = body.email
+    if body.password:
+        updates["password"] = hash_password(body.password)
+        
+    if updates:
+        await db.users.update_one({"id": user["id"]}, {"$set": updates})
+        
+        # Also update the employee name if an employee record exists
+        if body.name:
+            await db.employees.update_one({"id": user.get("employee_id_ref", "")}, {"$set": {"name": body.name}})
+            
+    return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
+
+
+
 @api.put("/employees/{emp_id}/salary")
 async def set_salary(emp_id: str, body: SalaryIn, user: dict = Depends(require_roles("admin"))):
     existing = await db.employees.find_one({"id": emp_id, "org_id": user["org_id"]}, {"_id": 0})
@@ -678,6 +719,12 @@ async def checkin(user: dict = Depends(get_current_user)):
     shift = await db.shifts.find_one({"id": emp.get("shift_id")}, {"_id": 0}) if emp.get("shift_id") else None
     ci = now_ist().isoformat()
     status = compute_status(ci, shift)
+    
+    if status == "Late":
+        last_3 = await db.attendance.find({"employee_id": emp["id"], "date": {"$lt": today}}).sort("date", -1).limit(3).to_list(3)
+        if len(last_3) == 3 and all(a.get("status") in ("Late", "Half Day") for a in last_3):
+            status = "Half Day"
+
     doc = {"id": uid(), "org_id": user["org_id"], "employee_id": emp["id"],
            "date": today, "check_in": ci, "check_out": None, "hours": 0, "status": status}
     await db.attendance.insert_one(doc)
@@ -697,18 +744,55 @@ async def checkout(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Not checked in")
     if att.get("check_out"):
         raise HTTPException(status_code=400, detail="Already checked out")
-    co = now_ist().isoformat()
+    
+    now = now_ist()
+    if now.hour > 19 or (now.hour == 19 and now.minute >= 30):
+        now = now.replace(hour=18, minute=30, second=0, microsecond=0)
+    
+    co = now.isoformat()
     hrs = hours_between(att["check_in"], co)
     await db.attendance.update_one({"id": att["id"]}, {"$set": {"check_out": co, "hours": hrs}})
     await log_activity(user["org_id"], f"{emp['name']} checked out")
     return await db.attendance.find_one({"id": att["id"]}, {"_id": 0})
 
 
+async def auto_fix_missing_checkouts(emp_id: Optional[str] = None, org_id: Optional[str] = None):
+    try:
+        now = now_ist()
+        today = now.date().isoformat()
+        query = {"check_out": None, "check_in": {"$ne": None}}
+        if emp_id:
+            query["employee_id"] = emp_id
+        if org_id:
+            query["org_id"] = org_id
+            
+        records = await db.attendance.find(query).to_list(1000)
+        for r in records:
+            ci_dt = datetime.fromisoformat(r["check_in"])
+            is_past = r["date"] < today
+            # Only auto-checkout if the check-in itself was before 18:30
+            # Otherwise they are working a late shift or checked in late
+            is_late_today = r["date"] == today and (now.hour > 19 or (now.hour == 19 and now.minute >= 30)) and (ci_dt.hour < 18 or (ci_dt.hour == 18 and ci_dt.minute <= 30))
+            if is_past or is_late_today:
+                co_dt = ci_dt.replace(hour=18, minute=30, second=0, microsecond=0)
+                # If for some reason checkout is before checkin (e.g. past day late checkin), fallback
+                if co_dt < ci_dt:
+                    co_dt = ci_dt
+                co = co_dt.isoformat()
+                hrs = hours_between(r["check_in"], co)
+                await db.attendance.update_one({"id": r["id"]}, {"$set": {"check_out": co, "hours": hrs}})
+    except Exception as e:
+        import logging
+        logging.error(f"Error in auto_fix_missing_checkouts: {e}")
+
 @api.get("/attendance/me")
 async def my_attendance(range: str = "month", user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
     if not emp:
         return {"today": None, "history": []}
+    
+    await auto_fix_missing_checkouts(emp_id=emp["id"])
+    
     today = now_ist().date()
     if range == "today":
         start = today
@@ -726,6 +810,8 @@ async def my_attendance(range: str = "month", user: dict = Depends(get_current_u
 @api.get("/attendance")
 async def all_attendance(date: Optional[str] = None, department: Optional[str] = None,
                          status: Optional[str] = None, user: dict = Depends(require_roles("admin", "team_leader"))):
+    await auto_fix_missing_checkouts(org_id=user["org_id"])
+    
     d = date or today_str()
     emps = await list_employees(user)
     emp_ids = [e["id"] for e in emps]
@@ -807,6 +893,9 @@ async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
            "from_date": body.from_date, "to_date": body.to_date,
            "days": days_between(body.from_date, body.to_date),
            "reason": body.reason, "status": "Pending",
+           "category": body.category,
+           "half_day_type": body.half_day_type,
+           "permission_hours": body.permission_hours,
            "applied_at": now_utc().isoformat()}
     await db.leaves.insert_one(doc)
     # notify team leader / admins
@@ -832,8 +921,23 @@ async def my_leaves(user: dict = Depends(get_current_user)):
     return {"balance": bal, "leaves": leaves}
 
 
+def is_leave_admin(user: dict) -> bool:
+    return user["role"] == "admin" or user.get("phone") == "9626573939"
+
+def require_leave_admin():
+    async def dep(user: dict = Depends(get_current_user)):
+        if not is_leave_admin(user) and user["role"] != "team_leader":
+            raise HTTPException(status_code=403, detail="Not allowed")
+        return user
+    return dep
+
+@api.get("/leaves/pending")
+async def pending_leaves(user: dict = Depends(require_leave_admin())):
+    leaves = await db.leaves.find({"org_id": user["org_id"], "status": "Pending"}, {"_id": 0}).sort("applied_at", -1).to_list(100)
+    return leaves
+
 @api.get("/leaves")
-async def list_leaves(user: dict = Depends(require_roles("admin", "team_leader"))):
+async def list_leaves(user: dict = Depends(require_leave_admin())):
     emps = await list_employees(user)
     ids = [e["id"] for e in emps]
     leaves = await db.leaves.find({"employee_id": {"$in": ids}}, {"_id": 0}).sort("applied_at", -1).to_list(300)
@@ -841,7 +945,7 @@ async def list_leaves(user: dict = Depends(require_roles("admin", "team_leader")
 
 
 @api.put("/leaves/{leave_id}/approve")
-async def approve_leave(leave_id: str, user: dict = Depends(require_roles("admin", "team_leader"))):
+async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin())):
     leave = await db.leaves.find_one({"id": leave_id, "org_id": user["org_id"]}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
@@ -854,7 +958,13 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_roles("admin
     d = date.fromisoformat(leave["from_date"])
     end = date.fromisoformat(leave["to_date"])
     while d <= end:
-        await mark_attendance(leave["employee_id"], d.isoformat(), "Leave", user)
+        cat = leave.get("category")
+        if cat == "Half Day":
+            await mark_attendance(leave["employee_id"], d.isoformat(), "Half Day", user)
+        elif cat == "Permission":
+            await mark_attendance(leave["employee_id"], d.isoformat(), "Permission", user)
+        else:
+            await mark_attendance(leave["employee_id"], d.isoformat(), "Leave", user)
         d += timedelta(days=1)
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
@@ -864,7 +974,7 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_roles("admin
 
 
 @api.put("/leaves/{leave_id}/reject")
-async def reject_leave(leave_id: str, user: dict = Depends(require_roles("admin", "team_leader"))):
+async def reject_leave(leave_id: str, user: dict = Depends(require_leave_admin())):
     leave = await db.leaves.find_one({"id": leave_id, "org_id": user["org_id"]}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1359,7 +1469,39 @@ async def myspace_get_file(fid: str, user: dict = Depends(get_current_user)):
         if not item or not await can_view_item(item, user):
             raise HTTPException(status_code=403, detail="Not allowed")
     return {"name": f["name"], "type": f["content_type"], "size": f["size"],
-            "data_url": f"data:{f['content_type']};base64,{f['data']}"}
+            "data_url": f.get("data_url") or f"data:{f['content_type']};base64,{f['data']}"}
+
+
+# ---------------- announcements ----------------
+@api.get("/announcements")
+async def get_announcements(user: dict = Depends(get_current_user)):
+    items = await db.announcements.find({"org_id": user["org_id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return items
+
+@api.post("/announcements")
+async def create_announcement(body: AnnouncementIn, user: dict = Depends(require_roles("admin", "team_leader"))):
+    doc = {
+        "id": uid(),
+        "org_id": user["org_id"],
+        "title": body.title,
+        "type": body.type,
+        "message": body.message,
+        "link_url": body.link_url,
+        "image_data": body.image_data,
+        "created_at": now_ist().isoformat(),
+        "created_by": user["name"]
+    }
+    await db.announcements.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/announcements/{ann_id}")
+async def delete_announcement(ann_id: str, user: dict = Depends(require_roles("admin", "team_leader"))):
+    res = await db.announcements.delete_one({"id": ann_id, "org_id": user["org_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
 
 
 # include router
