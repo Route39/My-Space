@@ -15,6 +15,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { shortDate, dateStr } from "@/lib/format";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/dist/style.css";
+import { isWithinInterval, startOfDay, endOfDay, parseISO } from "date-fns";
 
 const TYPES = ["Casual Leave", "Sick Leave", "Unpaid Leave", "Other"];
 
@@ -26,11 +29,17 @@ export default function Leave() {
 
 function StaffLeave() {
   const [data, setData] = useState({ balance: null, leaves: [] });
+  const [approvedLeaves, setApprovedLeaves] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1" });
   const [busy, setBusy] = useState(false);
 
-  const load = async () => { const { data } = await api.get("/leaves/me"); setData(data); };
+  const load = async () => { 
+    const { data } = await api.get("/leaves/me"); 
+    setData(data); 
+    const { data: appData } = await api.get("/leaves/approved");
+    setApprovedLeaves(appData);
+  };
   useEffect(() => { load(); }, []);
 
   const submit = async () => {
@@ -51,6 +60,20 @@ function StaffLeave() {
   const available = b ? (b.casual - b.used_casual) + (b.sick - b.used_sick) : 0;
   const used = b ? b.used_casual + b.used_sick : 0;
   const pending = data.leaves.filter((l) => l.status === "Pending").length;
+
+  // Check for conflicts
+  const conflicts = approvedLeaves.filter(l => {
+    try {
+      if (!form.from_date) return false;
+      const fStart = startOfDay(parseISO(form.from_date));
+      const fEnd = form.category === "Full Day" && form.to_date ? endOfDay(parseISO(form.to_date)) : endOfDay(parseISO(form.from_date));
+      const lStart = startOfDay(parseISO(l.from_date));
+      const lEnd = endOfDay(parseISO(l.to_date || l.from_date));
+      
+      // Check if intervals overlap
+      return (fStart <= lEnd && fEnd >= lStart);
+    } catch (e) { return false; }
+  });
 
   return (
     <div className="space-y-6">
@@ -107,6 +130,17 @@ function StaffLeave() {
                 </div>
               )}
 
+              {conflicts.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm">
+                  <p className="font-semibold mb-1">Already on leave during these dates:</p>
+                  <ul className="list-disc pl-5">
+                    {conflicts.map(c => (
+                      <li key={c.id}>{c.employee_name} ({shortDate(c.from_date)}{c.category === 'Full Day' && c.from_date !== c.to_date ? ` to ${shortDate(c.to_date)}` : ''})</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div><Label>Reason</Label><Textarea className="rounded-xl mt-1" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
             </div>
             <DialogFooter>
@@ -142,7 +176,7 @@ function StaffLeave() {
                     </div>
                   </td>
                   <td className="px-3 py-3 text-slate-600">{shortDate(l.from_date)}</td>
-                  <td className="px-3 py-3 text-slate-600">{l.category === "Full Day" ? shortDate(l.to_date) : "-"}</td>
+                  <td className="px-3 py-3 text-slate-600">{l.category === "Full Day" && l.from_date !== l.to_date ? shortDate(l.to_date) : "-"}</td>
                   <td className="px-3 py-3 text-slate-600">{l.days}</td>
                   <td className="px-5 py-3"><StatusBadge status={l.status} /></td>
                 </tr>
@@ -158,6 +192,8 @@ function StaffLeave() {
 function ManagerLeave() {
   const [leaves, setLeaves] = useState([]);
   const [search, setSearch] = useState("");
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
   const load = async () => { const { data } = await api.get("/leaves"); setLeaves(data); };
   useEffect(() => { load(); }, []);
 
@@ -174,71 +210,200 @@ function ManagerLeave() {
     <div className="space-y-6">
       <h1 className="font-heading text-3xl font-bold text-slate-900 tracking-tight">Leave Requests</h1>
 
-      <div>
-        <p className="text-sm font-medium text-slate-400 mb-2">Pending approval ({pending.length})</p>
-        <div className="space-y-2">
-          {pending.length === 0 && <div className="rounded-2xl bg-white border border-slate-200 p-8 text-center text-sm text-slate-400">No pending requests</div>}
-          {pending.map((l) => (
-            <div key={l.id} className="rounded-2xl bg-white border border-slate-200 p-4 flex items-center justify-between gap-3" data-testid={`leave-req-${l.id}`}>
-              <div className="flex items-center gap-3">
-                <Avatar name={l.employee_name} size={38} />
-                <div>
-                  <p className="font-medium text-slate-800">{l.employee_name}</p>
-                  <p className="text-xs text-slate-400">
-                    {l.leave_type} · {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""} · {dateStr(l.from_date)}{l.category === "Full Day" ? ` → ${dateStr(l.to_date)}` : ""}
-                  </p>
-                  {l.reason && <p className="text-xs text-slate-500 mt-0.5">"{l.reason}"</p>}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="md:col-span-2 space-y-6">
+          <div>
+            <p className="text-sm font-medium text-slate-400 mb-2">Pending approval ({pending.length})</p>
+            <div className="space-y-2">
+              {pending.length === 0 && <div className="rounded-2xl bg-white border border-slate-200 p-8 text-center text-sm text-slate-400">No pending requests</div>}
+          {pending.map((l) => {
+            // Check for conflicts with approved leaves
+            const reqStart = startOfDay(parseISO(l.from_date));
+            const reqEnd = endOfDay(parseISO(l.to_date || l.from_date));
+            const conflicts = others.filter(other => {
+              if (other.status !== "Approved") return false;
+              try {
+                const oStart = startOfDay(parseISO(other.from_date));
+                const oEnd = endOfDay(parseISO(other.to_date || other.from_date));
+                return (reqStart <= oEnd && reqEnd >= oStart);
+              } catch(e) { return false; }
+            });
+
+            return (
+              <div key={l.id} className="rounded-2xl bg-white border border-slate-200 p-4 flex flex-col gap-3" data-testid={`leave-req-${l.id}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={l.employee_name} size={38} />
+                    <div>
+                      <p className="font-medium text-slate-800">{l.employee_name}</p>
+                      <p className="text-xs text-slate-400">
+                        {l.leave_type} · {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""} · {dateStr(l.from_date)}{l.category === "Full Day" && l.from_date !== l.to_date ? ` → ${dateStr(l.to_date)}` : ""}
+                      </p>
+                      {l.reason && <p className="text-xs text-slate-500 mt-0.5">"{l.reason}"</p>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => act(l.id, "approve")} data-testid={`approve-${l.id}`} className="rounded-xl bg-emerald-600 hover:bg-emerald-700"><Check className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="outline" onClick={() => act(l.id, "reject")} data-testid={`reject-${l.id}`} className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"><X className="w-4 h-4" /></Button>
+                  </div>
                 </div>
+                {conflicts.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded-lg text-[11px] font-medium flex items-start gap-1">
+                    <span className="shrink-0 mt-0.5">⚠️</span>
+                    <span>
+                      Conflict: {conflicts.map(c => c.employee_name).join(", ")} {conflicts.length === 1 ? 'is' : 'are'} already on leave during these dates.
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => act(l.id, "approve")} data-testid={`approve-${l.id}`} className="rounded-xl bg-emerald-600 hover:bg-emerald-700"><Check className="w-4 h-4" /></Button>
-                <Button size="sm" variant="outline" onClick={() => act(l.id, "reject")} data-testid={`reject-${l.id}`} className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"><X className="w-4 h-4" /></Button>
+            );
+          })}
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="font-heading font-semibold text-slate-800">History</h2>
+              <Input 
+                placeholder="Search staff..." 
+                value={search} 
+                onChange={(e) => setSearch(e.target.value)} 
+                className="w-48 h-8 text-sm rounded-lg"
+              />
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-slate-500 text-xs">
+                  <th className="font-medium px-5 py-2">Employee</th><th className="font-medium px-3 py-2">Type</th>
+                  <th className="font-medium px-3 py-2">Dates</th><th className="font-medium px-3 py-2">Days</th>
+                  <th className="font-medium px-5 py-2">Status</th>
+                </tr></thead>
+                <tbody>
+                  {others
+                    .filter(l => !search || l.employee_name.toLowerCase().includes(search.toLowerCase()))
+                    .map((l) => (
+                    <tr key={l.id} className="border-t border-slate-50">
+                      <td className="px-5 py-3 font-medium text-slate-700">
+                        {l.employee_name}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600">
+                        {l.leave_type}
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-slate-600">
+                        {shortDate(l.from_date)}{l.category === "Full Day" && l.from_date !== l.to_date ? ` → ${shortDate(l.to_date)}` : ""}
+                      </td>
+                      <td className="px-3 py-3 text-slate-600">{l.days}</td>
+                      <td className="px-5 py-3"><StatusBadge status={l.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Calendar */}
+        <div className="space-y-4">
+          <div className="rounded-2xl bg-white border border-slate-200 p-5 overflow-hidden shadow-sm">
+            <h2 className="font-heading font-semibold text-slate-800 mb-4">Leave Calendar</h2>
+            <div className="flex flex-col items-center">
+              <style>{`
+                .rdp { --rdp-cell-size: 38px; margin: 0; }
+                .rdp-day_today { color: #059669; font-weight: bold; }
+                .rdp-day_selected { background-color: #059669 !important; color: white !important; font-weight: bold; }
+              `}</style>
+              <DayPicker
+                mode="single"
+                selected={selectedDate}
+                onSelect={setSelectedDate}
+                className="bg-slate-50 p-3 rounded-xl shadow-inner border border-slate-100"
+                components={{
+                  DayContent: (props) => {
+                    const { date } = props;
+                    const leavesOnDate = others.filter((l) => {
+                      if (l.status !== "Approved") return false;
+                      try {
+                        const start = startOfDay(parseISO(l.from_date));
+                        const end = endOfDay(parseISO(l.to_date || l.from_date));
+                        return isWithinInterval(date, { start, end });
+                      } catch (e) { return false; }
+                    });
+
+                    return (
+                      <div className="flex flex-col items-center justify-start h-full w-full relative pt-1">
+                        <span className="text-sm">{date.getDate()}</span>
+                        <div className="flex flex-wrap justify-center gap-0.5 mt-0.5">
+                          {leavesOnDate.slice(0, 3).map((l, i) => (
+                            <div key={i} className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          {selectedDate && (
+            <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
+              <h3 className="font-semibold text-slate-800 text-sm mb-3">
+                Leaves on {shortDate(selectedDate.toISOString())}
+              </h3>
+              <div className="space-y-2">
+                {others.filter((l) => {
+                  if (l.status !== "Approved") return false;
+                  try {
+                    const start = startOfDay(parseISO(l.from_date));
+                    const end = endOfDay(parseISO(l.to_date || l.from_date));
+                    return isWithinInterval(selectedDate, { start, end });
+                  } catch (e) { return false; }
+                }).length === 0 ? (
+                  <p className="text-xs text-slate-400">No staff on leave this day.</p>
+                ) : (
+                  others.filter((l) => {
+                    if (l.status !== "Approved") return false;
+                    try {
+                      const start = startOfDay(parseISO(l.from_date));
+                      const end = endOfDay(parseISO(l.to_date || l.from_date));
+                      return isWithinInterval(selectedDate, { start, end });
+                    } catch (e) { return false; }
+                  }).map(l => {
+                    let stateStr = "";
+                    let stateColor = "";
+                    try {
+                      const today = startOfDay(new Date());
+                      const start = startOfDay(parseISO(l.from_date));
+                      const end = startOfDay(parseISO(l.to_date || l.from_date));
+                      if (end < today) { stateStr = "Completed"; stateColor = "text-slate-400"; }
+                      else if (start > today) { stateStr = "Upcoming"; stateColor = "text-blue-500 font-medium"; }
+                      else { stateStr = "Ongoing"; stateColor = "text-emerald-500 font-medium"; }
+                    } catch(e) {}
+                    
+                    return (
+                      <div key={l.id} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
+                        <Avatar name={l.employee_name} size={24} />
+                        <div>
+                          <p className="text-xs font-medium text-slate-700">{l.employee_name}</p>
+                          <p className="text-[10px] text-slate-400">
+                            {l.leave_type} 
+                            <span className="mx-1">·</span> 
+                            {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""} 
+                            {l.category === "Full Day" ? ` (${l.days} ${l.days === 1 ? 'day' : 'days'})` : ""}
+                            <span className="mx-1">·</span> 
+                            <span className={stateColor}>{stateStr}</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-heading font-semibold text-slate-800">History</h2>
-          <Input 
-            placeholder="Search staff..." 
-            value={search} 
-            onChange={(e) => setSearch(e.target.value)} 
-            className="w-48 h-8 text-sm rounded-lg"
-          />
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-slate-500 text-xs">
-              <th className="font-medium px-5 py-2">Employee</th><th className="font-medium px-3 py-2">Type</th>
-              <th className="font-medium px-3 py-2">Dates</th><th className="font-medium px-3 py-2">Days</th>
-              <th className="font-medium px-5 py-2">Status</th>
-            </tr></thead>
-            <tbody>
-              {others
-                .filter(l => !search || l.employee_name.toLowerCase().includes(search.toLowerCase()))
-                .map((l) => (
-                <tr key={l.id} className="border-t border-slate-50">
-                  <td className="px-5 py-3 font-medium text-slate-700">
-                    {l.employee_name}
-                  </td>
-                  <td className="px-3 py-3 text-slate-600">
-                    {l.leave_type}
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 text-slate-600">
-                    {shortDate(l.from_date)}{l.category === "Full Day" ? ` → ${shortDate(l.to_date)}` : ""}
-                  </td>
-                  <td className="px-3 py-3 text-slate-600">{l.days}</td>
-                  <td className="px-5 py-3"><StatusBadge status={l.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          )}
         </div>
       </div>
     </div>

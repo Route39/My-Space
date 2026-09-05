@@ -971,6 +971,18 @@ async def list_leaves(user: dict = Depends(require_leave_admin())):
     return leaves
 
 
+@api.get("/leaves/approved")
+async def list_approved_leaves(user: dict = Depends(get_current_user)):
+    emps = await list_employees(user)
+    ids = [e["id"] for e in emps]
+    # Return approved leaves for everyone in the org so staff can plan their own leaves
+    leaves = await db.leaves.find(
+        {"employee_id": {"$in": ids}, "status": "Approved"}, 
+        {"_id": 0, "reason": 0} # hide reason for privacy
+    ).sort("applied_at", -1).to_list(300)
+    return leaves
+
+
 @api.put("/leaves/{leave_id}/approve")
 async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin())):
     leave = await db.leaves.find_one({"id": leave_id, "org_id": user["org_id"]}, {"_id": 0})
