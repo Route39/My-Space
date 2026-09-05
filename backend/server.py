@@ -157,6 +157,12 @@ class UserProfileUpdateIn(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     password: Optional[str] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None
+    designation: Optional[str] = None
+    location: Optional[str] = None
+    joining_date: Optional[str] = None
+    salary_type: Optional[str] = None
 
 
 class AnnouncementIn(BaseModel):
@@ -200,7 +206,9 @@ class LeaveIn(BaseModel):
     category: str = "Full Day"
     half_day_type: Optional[str] = None
     permission_hours: Optional[str] = None
-
+class ChatMsgIn(BaseModel):
+    message: str
+    mentions: List[str] = []
 
 class TaskIn(BaseModel):
     title: str
@@ -678,9 +686,9 @@ async def delete_employee(emp_id: str, user: dict = Depends(require_roles("admin
 @api.put("/users/me")
 async def update_my_profile(body: UserProfileUpdateIn, user: dict = Depends(get_current_user)):
     updates = {}
-    if body.name:
+    if body.name is not None:
         updates["name"] = body.name
-    if body.email:
+    if body.email is not None:
         updates["email"] = body.email
     if body.password:
         updates["password"] = hash_password(body.password)
@@ -688,9 +696,28 @@ async def update_my_profile(body: UserProfileUpdateIn, user: dict = Depends(get_
     if updates:
         await db.users.update_one({"id": user["id"]}, {"$set": updates})
         
-        # Also update the employee name if an employee record exists
-        if body.name:
-            await db.employees.update_one({"id": user.get("employee_id_ref", "")}, {"$set": {"name": body.name}})
+    # Update employee details if an employee record exists
+    if user.get("employee_id_ref"):
+        emp_updates = {}
+        if body.name is not None:
+            emp_updates["name"] = body.name
+        if body.email is not None:
+            emp_updates["email"] = body.email
+        if body.phone is not None:
+            emp_updates["phone"] = body.phone
+        if body.department is not None:
+            emp_updates["department"] = body.department
+        if body.designation is not None:
+            emp_updates["designation"] = body.designation
+        if body.location is not None:
+            emp_updates["location"] = body.location
+        if body.joining_date is not None:
+            emp_updates["joining_date"] = body.joining_date
+        if body.salary_type is not None:
+            emp_updates["salary_type"] = body.salary_type
+
+        if emp_updates:
+            await db.employees.update_one({"id": user["employee_id_ref"]}, {"$set": emp_updates})
             
     return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
 
@@ -1503,6 +1530,86 @@ async def delete_announcement(ann_id: str, user: dict = Depends(require_roles("a
     return {"ok": True}
 
 
+
+# ---------------- chat ----------------
+
+@api.get("/chat/messages")
+async def get_chat_messages(user: dict = Depends(get_current_user)):
+    # Find messages where:
+    # 1. user is not in deleted_for
+    # 2. mentions array is empty OR user is the sender OR user is mentioned
+    query = {
+        "org_id": user["org_id"],
+        "deleted_for": {"$ne": user["id"]},
+        "$or": [
+            {"mentions": {"$size": 0}},
+            {"mentions": user["id"]},
+            {"sender_id": user["id"]}
+        ]
+    }
+    msgs = await db.chats.find(query).sort("created_at", -1).limit(50).to_list(None)
+    msgs.reverse()
+    
+    # Attach sender details
+    for m in msgs:
+        m.pop("_id", None)
+        sender = await db.users.find_one({"id": m["sender_id"]})
+        if sender:
+            m["sender_name"] = sender.get("name", "Unknown")
+            m["sender_role"] = sender.get("role", "staff")
+        else:
+            m["sender_name"] = "Unknown"
+            m["sender_role"] = "staff"
+    return msgs
+
+@api.post("/chat/messages")
+async def send_chat_message(body: ChatMsgIn, user: dict = Depends(get_current_user)):
+    msg_id = uid()
+    doc = {
+        "id": msg_id,
+        "org_id": user["org_id"],
+        "sender_id": user["id"],
+        "message": body.message,
+        "mentions": body.mentions,
+        "deleted_for": [],
+        "created_at": now_ist().isoformat()
+    }
+    await db.chats.insert_one(doc)
+    
+    # Create notifications for mentions
+    for m_id in body.mentions:
+        await create_notification(m_id, "mention", f"{user.get('name', 'Someone')} mentioned you in chat")
+        
+    return {"status": "ok", "id": msg_id}
+
+@api.delete("/chat/messages/{msg_id}")
+async def delete_chat_message(msg_id: str, for_everyone: bool = False, user: dict = Depends(get_current_user)):
+    msg = await db.chats.find_one({"id": msg_id, "org_id": user["org_id"]})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Not found")
+        
+    if for_everyone:
+        if msg["sender_id"] != user["id"] and user["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Not authorized to delete for everyone")
+        await db.chats.delete_one({"id": msg_id})
+    else:
+        await db.chats.update_one({"id": msg_id}, {"$addToSet": {"deleted_for": user["id"]}})
+        
+    return {"ok": True}
+
+@api.delete("/chat/clear")
+async def clear_chat(user: dict = Depends(get_current_user)):
+    # Add user to deleted_for on all existing messages for this user
+    query = {
+        "org_id": user["org_id"],
+        "$or": [
+            {"mentions": {"$size": 0}},
+            {"mentions": user["id"]},
+            {"sender_id": user["id"]}
+        ]
+    }
+    await db.chats.update_many(query, {"$addToSet": {"deleted_for": user["id"]}})
+    return {"ok": True}
 
 # include router
 app.include_router(api)

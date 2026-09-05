@@ -7,6 +7,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { Avatar } from "@/components/common";
+import ChatWidget from "./ChatWidget";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -155,6 +156,7 @@ export default function Layout({ children }) {
           ))}
         </div>
       </nav>
+      <ChatWidget />
     </div>
   );
 }

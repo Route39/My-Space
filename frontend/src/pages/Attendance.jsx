@@ -121,6 +121,7 @@ function AdminAttendance({ user }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [dept, setDept] = useState("all");
   const [status, setStatus] = useState("all");
+  const [search, setSearch] = useState("");
 
   const load = async () => {
     const params = { date };
@@ -136,6 +137,8 @@ function AdminAttendance({ user }) {
 
   const counts = { Present: 0, Late: 0, "Half Day": 0, Permission: 0, Absent: 0, Leave: 0 };
   rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
+
+  const filteredRows = rows.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="space-y-6">
@@ -158,6 +161,12 @@ function AdminAttendance({ user }) {
           <SelectTrigger className="rounded-xl w-36 bg-white" data-testid="att-status"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="all">All Status</SelectItem>{["Present", "Late", "Absent", "Leave", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
         </Select>
+        <Input 
+          placeholder="Search staff by name..." 
+          value={search} 
+          onChange={(e) => setSearch(e.target.value)} 
+          className="rounded-xl w-64 bg-white"
+        />
       </div>
 
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
@@ -169,7 +178,7 @@ function AdminAttendance({ user }) {
               <th className="font-medium px-3 py-3">Status</th>{user.role === "admin" && <th className="font-medium px-5 py-3">Mark</th>}
             </tr></thead>
             <tbody>
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.employee_id} className="border-t border-slate-50 hover:bg-slate-50/80 transition-colors">
                   <td className="px-5 py-3"><div className="flex items-center gap-2.5"><Avatar src={r.photo} name={r.name} size={30} /><span className="font-medium text-slate-700">{r.name}</span></div></td>
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}</td>

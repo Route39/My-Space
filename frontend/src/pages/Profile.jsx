@@ -63,6 +63,7 @@ export default function Profile() {
       {showEdit && (
         <EditProfileModal
           user={user}
+          employee={employee}
           onClose={() => setShowEdit(false)}
           onSuccess={() => {
             setShowEdit(false);
@@ -78,16 +79,26 @@ const Info = ({ icon: Icon, text }) => (
   <div className="flex items-center gap-2 text-slate-600"><Icon className="w-4 h-4 text-slate-400" /> {text || "—"}</div>
 );
 
-function EditProfileModal({ user, onClose, onSuccess }) {
-  const [data, setData] = useState({ name: user.name || "", email: user.email || "", password: "" });
+function EditProfileModal({ user, employee, onClose, onSuccess }) {
+  const [data, setData] = useState({ 
+    name: user.name || "", 
+    email: user.email || "", 
+    password: "",
+    phone: employee?.phone || "",
+    department: employee?.department || "",
+    designation: employee?.designation || "",
+    location: employee?.location || "",
+    joining_date: employee?.joining_date || "",
+    salary_type: employee?.salary_type || "Monthly"
+  });
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const payload = { name: data.name, email: data.email };
-      if (data.password) payload.password = data.password;
+      const payload = { ...data };
+      if (!data.password) delete payload.password;
       await api.put("/users/me", payload);
       toast.success("Profile updated successfully");
       onSuccess();
@@ -98,26 +109,55 @@ function EditProfileModal({ user, onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in-95">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl animate-in zoom-in-95 my-8">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white rounded-t-2xl z-10">
           <h2 className="font-heading text-lg font-bold">Edit Profile</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">&times;</button>
         </div>
         <form onSubmit={onSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Full Name</label>
-            <input required type="text" value={data.name} onChange={(e) => setData({ ...data, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Full Name</label>
+              <input required type="text" value={data.name} onChange={(e) => setData({ ...data, name: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Email Address</label>
+              <input required type="email" value={data.email} onChange={(e) => setData({ ...data, email: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Phone Number</label>
+              <input type="text" value={data.phone} onChange={(e) => setData({ ...data, phone: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Location</label>
+              <input type="text" value={data.location} onChange={(e) => setData({ ...data, location: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Department</label>
+              <input type="text" value={data.department} onChange={(e) => setData({ ...data, department: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Designation</label>
+              <input type="text" value={data.designation} onChange={(e) => setData({ ...data, designation: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Joining Date</label>
+              <input type="date" value={data.joining_date} onChange={(e) => setData({ ...data, joining_date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Salary Type</label>
+              <select value={data.salary_type} onChange={(e) => setData({ ...data, salary_type: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors">
+                <option value="Monthly">Monthly</option>
+                <option value="Hourly">Hourly</option>
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">New Password</label>
+              <input type="password" value={data.password} onChange={(e) => setData({ ...data, password: e.target.value })} placeholder="Leave blank to keep current" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Email Address</label>
-            <input required type="email" value={data.email} onChange={(e) => setData({ ...data, email: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">New Password</label>
-            <input type="password" value={data.password} onChange={(e) => setData({ ...data, password: e.target.value })} placeholder="Leave blank to keep current" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
-          </div>
-          <div className="pt-2 flex justify-end gap-3">
+          <div className="pt-4 flex justify-end gap-3 border-t border-slate-100 mt-6">
             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={busy}>{busy ? "Saving..." : "Save Changes"}</Button>
           </div>
