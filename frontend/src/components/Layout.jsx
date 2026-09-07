@@ -1,16 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   Users, Clock, KanbanSquare, Palmtree, Wallet, Settings, Bell, LogOut,
-  Home, User, PanelLeftClose, PanelLeft, NotebookPen,
+  Home, User, PanelLeftClose, PanelLeft, NotebookPen, MessageCircle
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 import { Avatar } from "@/components/common";
-import ChatWidget from "./ChatWidget";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 
 const ALL_NAV = [
   { to: "/", label: "Dashboard", icon: Home, roles: ["admin", "team_leader", "staff"] },
@@ -19,6 +19,7 @@ const ALL_NAV = [
   { to: "/tasks", label: "Tasks", icon: KanbanSquare, roles: ["admin", "team_leader", "staff"] },
   { to: "/myspace", label: "My Space", icon: NotebookPen, roles: ["admin", "team_leader", "staff"] },
   { to: "/leave", label: "Leave", icon: Palmtree, roles: ["admin", "team_leader", "staff"] },
+  { to: "/chat", label: "Chat", icon: MessageCircle, roles: ["admin", "team_leader", "staff"] },
   { to: "/payroll", label: "Payroll", icon: Wallet, roles: ["admin", "team_leader"] },
   { to: "/payslip", label: "Payslip", icon: Wallet, roles: ["staff"] },
   { to: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
@@ -26,12 +27,30 @@ const ALL_NAV = [
 
 const TITLES = {
   "/": "Dashboard", "/staff": "Staff", "/attendance": "Attendance", "/tasks": "Tasks",
-  "/leave": "Leave", "/payroll": "Payroll", "/payslip": "My Payslip", "/settings": "Settings", "/profile": "My Profile",
+  "/leave": "Leave", "/chat": "Chat", "/payroll": "Payroll", "/payslip": "My Payslip", "/settings": "Settings", "/profile": "My Profile",
 };
 
 function NotificationBell() {
   const [items, setItems] = useState([]);
-  const load = async () => { try { const { data } = await api.get("/notifications"); setItems(data); } catch (e) {} };
+  const lastNoteIdRef = useRef(null);
+
+  const load = async () => { 
+    try { 
+      const { data } = await api.get("/notifications"); 
+      setItems(data); 
+      
+      if (data.length > 0) {
+        const first = data[0];
+        if (lastNoteIdRef.current && lastNoteIdRef.current !== first.id && !first.read) {
+          if (first.type === "announcement") {
+            const audio = new Audio("/ringtone/please_pay_attention.mp3");
+            audio.play().catch(e => console.log("Audio play blocked"));
+          }
+        }
+        lastNoteIdRef.current = first.id;
+      }
+    } catch (e) {} 
+  };
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
   const unread = items.filter((i) => !i.read).length;
   const markAll = async () => { await api.put("/notifications/read-all"); load(); };
@@ -65,11 +84,131 @@ function NotificationBell() {
   );
 }
 
+function ReminderDaemon() {
+  const [activeReminders, setActiveReminders] = useState([]);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio("/ringtone/reminder.mp3");
+      audioRef.current.loop = true;
+    }
+    
+    const load = async () => {
+      try {
+        const { data } = await api.get("/myspace/active_reminders");
+        setActiveReminders(data);
+        if (data.length > 0) {
+          if (audioRef.current.paused) {
+            audioRef.current.play().catch(e => console.log("Audio block: user interaction needed"));
+          }
+        } else {
+          if (!audioRef.current.paused) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+        }
+      } catch (e) {}
+    };
+    
+    load();
+    const t = setInterval(load, 10000); // check every 10s
+    return () => clearInterval(t);
+  }, []);
+
+  const snooze = async (id) => {
+    await api.put(`/myspace/${id}/snooze`);
+    const { data } = await api.get("/myspace/active_reminders");
+    setActiveReminders(data);
+    if (data.length === 0 && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  };
+
+  const dismiss = async (id) => {
+    await api.put(`/myspace/${id}/dismiss`);
+    const { data } = await api.get("/myspace/active_reminders");
+    setActiveReminders(data);
+    if (data.length === 0 && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+  };
+
+  if (activeReminders.length === 0) return null;
+
+  return (
+    <div className="fixed bottom-6 left-6 md:left-[280px] z-[100] flex flex-col gap-3 max-w-sm w-full transition-all duration-300">
+      {activeReminders.map(r => (
+        <div key={r.id} className="bg-white rounded-2xl shadow-2xl border border-emerald-100 p-5 animate-in slide-in-from-bottom-5 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500 animate-pulse"></div>
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 mt-0.5">
+              <Bell className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <h3 className="font-heading font-bold text-slate-800 text-lg">Reminder</h3>
+              <p className="text-sm text-slate-600 mt-0.5 font-medium">{r.title}</p>
+              {r.content && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{r.content}</p>}
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4 ml-13 pl-12">
+            <Button onClick={() => dismiss(r.id)} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs h-9">
+              Open Now
+            </Button>
+            <Button onClick={() => snooze(r.id)} variant="outline" className="flex-1 rounded-xl text-xs h-9 border-slate-200 hover:bg-slate-50 text-slate-600">
+              Snooze 5m
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Layout({ children }) {
   const { user, employee, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(localStorage.getItem("myspace_collapsed") === "1");
+  const [unreadChat, setUnreadChat] = useState(0);
+  const prevUnreadRef = useRef(0);
+
+  useEffect(() => {
+    // Request desktop notification permission so it works flawlessly in background tabs
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    const fetchUnreadChat = async () => {
+      try {
+        const { data } = await api.get("/chat/unread_count");
+        const count = data.count || 0;
+        
+        // If unread count goes up and we are NOT on the chat page, play the global sound
+        if (count > prevUnreadRef.current && location.pathname !== "/chat") {
+          const audio = new Audio("/ringtone/text_message.mp3");
+          audio.play().catch(e => console.log("Audio blocked"));
+          
+          // Show a Desktop notification if they are in another tab!
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("New Message in MySpace", {
+              body: "You have received a new chat message.",
+              icon: "/favicon.ico"
+            });
+          }
+        }
+        
+        prevUnreadRef.current = count;
+        setUnreadChat(count);
+      } catch (e) {}
+    };
+    fetchUnreadChat();
+    const t = setInterval(fetchUnreadChat, 10000);
+    return () => clearInterval(t);
+  }, [location.pathname]);
+
   const nav = ALL_NAV.filter((n) => n.roles.includes(user.role));
   const roleLabel = { admin: "Admin", team_leader: "Team Leader", staff: "Staff" }[user.role];
   const title = TITLES[location.pathname] || (location.pathname.startsWith("/staff/") ? "Staff" : "MySpace");
@@ -96,11 +235,24 @@ export default function Layout({ children }) {
         </div>
         <nav className="flex-1 px-3 space-y-1 mt-2">
           {nav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"} data-testid={`nav-${item.label.toLowerCase()}`}
-              title={item.label}
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${collapsed ? "justify-center" : ""} ${isActive ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"}`}>
-              <item.icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.75} />
-              {!collapsed && item.label}
+            <NavLink
+              key={item.label}
+              to={item.to}
+              end={item.to === "/"}
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 mx-3 rounded-xl transition-all duration-200 group relative ${isActive ? "bg-emerald-50 text-emerald-600 font-medium" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
+            >
+              <item.icon className="w-5 h-5 shrink-0" strokeWidth={1.75} />
+              {!collapsed && <span>{item.label}</span>}
+              {collapsed && (
+                <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50">
+                  {item.label}
+                </div>
+              )}
+              {item.label === "Chat" && unreadChat > 0 && (
+                <span className={`absolute ${collapsed ? "top-1 right-1" : "right-3"} min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center font-medium shadow-sm ring-2 ring-white`}>
+                  {unreadChat}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -149,14 +301,19 @@ export default function Layout({ children }) {
         <div className="flex items-center justify-around px-1 py-2">
           {MOBILE_NAV.map((item) => (
             <NavLink key={item.label} to={item.to} end={item.to === "/"} data-testid={`mnav-${item.label.toLowerCase()}`}
-              className={({ isActive }) => `flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg ${isActive ? "text-emerald-600" : "text-slate-400"}`}>
+              className={({ isActive }) => `relative flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg ${isActive ? "text-emerald-600" : "text-slate-400"}`}>
               <item.icon className="w-5 h-5" strokeWidth={1.75} />
               <span className="text-[10px] font-medium">{item.label}</span>
+              {item.label === "Chat" && unreadChat > 0 && (
+                <span className="absolute top-0 right-1 min-w-3.5 h-3.5 px-1 rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-medium ring-2 ring-white">
+                  {unreadChat}
+                </span>
+              )}
             </NavLink>
           ))}
         </div>
       </nav>
-      <ChatWidget />
+      <ReminderDaemon />
     </div>
   );
 }

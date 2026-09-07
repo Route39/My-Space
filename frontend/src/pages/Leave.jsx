@@ -191,10 +191,16 @@ function StaffLeave() {
 
 function ManagerLeave() {
   const [leaves, setLeaves] = useState([]);
+  const [missedCheckouts, setMissedCheckouts] = useState([]);
   const [search, setSearch] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const load = async () => { const { data } = await api.get("/leaves"); setLeaves(data); };
+  const load = async () => {
+    const { data } = await api.get("/leaves");
+    setLeaves(data);
+    const { data: missed } = await api.get("/attendance/missed_checkouts").catch(() => ({ data: [] }));
+    setMissedCheckouts(missed || []);
+  };
   useEffect(() => { load(); }, []);
 
   const act = async (id, action) => {
@@ -404,6 +410,33 @@ function ManagerLeave() {
               </div>
             </div>
           )}
+
+          {/* Missed Checkouts */}
+          <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+            <h2 className="font-heading font-semibold text-slate-800 mb-3 flex items-center justify-between">
+              Missed Checkouts
+              <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-xs">{missedCheckouts.length}</span>
+            </h2>
+            {missedCheckouts.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-4">No missed checkouts</p>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                {missedCheckouts.map((r, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 bg-red-50/50 rounded-xl border border-red-100">
+                    <Avatar name={r.employee_name} size={32} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-800 text-sm truncate">{r.employee_name}</p>
+                      <p className="text-xs text-slate-500">{shortDate(r.date)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-slate-400">Marked as</p>
+                      <p className="text-xs font-semibold text-red-600">18:30</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

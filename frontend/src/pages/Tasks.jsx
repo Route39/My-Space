@@ -109,7 +109,7 @@ export default function Tasks() {
       </DragDropContext>
 
       {tasks.length === 0 && <div className="rounded-2xl bg-white border border-slate-200"><EmptyState icon={KanbanSquare} title="You're all caught up 🎉" subtitle="No tasks yet. Create one to get your team moving." /></div>}
-      {active && <TaskDetail task={active} setTask={setActive} onChange={load} canEdit={canCreate} />}
+      {active && <TaskDetail task={active} setTask={setActive} onChange={load} canEdit={canCreate} emps={emps} />}
     </div>
   );
 }
@@ -170,8 +170,17 @@ function CreateTask({ emps, open, setOpen, onCreated }) {
   );
 }
 
-function TaskDetail({ task, setTask, onChange, canEdit }) {
+function TaskDetail({ task, setTask, onChange, canEdit, emps }) {
   const [t, setT] = useState(task);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [form, setForm] = useState({
+    title: task.title,
+    description: task.description || "",
+    assignee_id: task.assignee_id || "unassigned",
+    priority: task.priority,
+    due_date: task.due_date || "",
+  });
   const [comment, setComment] = useState("");
   const [newItem, setNewItem] = useState("");
   const refresh = async () => { const { data } = await api.get(`/tasks/${task.id}`); setT(data); onChange(); };
@@ -180,20 +189,63 @@ function TaskDetail({ task, setTask, onChange, canEdit }) {
   const addComment = async () => { if (!comment.trim()) return; await api.post(`/tasks/${t.id}/comments`, { text: comment }); setComment(""); refresh(); };
   const changeStatus = async (s) => { await api.put(`/tasks/${t.id}/status`, { status: s }); setT({ ...t, status: s }); onChange(); if (s === "completed") toast.success("Task completed 🎉"); };
   const del = async () => { await api.delete(`/tasks/${t.id}`); toast.success("Task deleted"); setTask(null); onChange(); };
+  const saveEdit = async () => {
+    setEditBusy(true);
+    try {
+      const payload = { ...form };
+      if (payload.assignee_id === "unassigned") payload.assignee_id = null;
+      await api.put(`/tasks/${t.id}`, payload);
+      toast.success("Task updated");
+      setIsEditing(false);
+      refresh();
+    } catch (e) { toast.error("Failed to update task"); }
+    setEditBusy(false);
+  };
   const doneCount = t.checklist.filter((c) => c.done).length;
 
   return (
     <Dialog open onOpenChange={() => setTask(null)}>
       <DialogContent className="rounded-2xl max-w-lg max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
-        <DialogHeader>
-          <span className={`self-start inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${PRIORITY[t.priority].chip}`}><span className={`w-1.5 h-1.5 rounded-full ${PRIORITY[t.priority].dot}`} />{t.priority}</span>
-          <DialogTitle className="font-heading text-xl">{t.title}</DialogTitle>
-        </DialogHeader>
-        {t.description && <p className="text-sm text-slate-600">{t.description}</p>}
-        <div className="flex items-center gap-4 text-sm text-slate-500">
-          {t.assignee_name && <span className="flex items-center gap-2"><Avatar name={t.assignee_name} size={24} /> {t.assignee_name}</span>}
-          {t.due_date && <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {shortDate(t.due_date)}</span>}
-        </div>
+        {isEditing ? (
+          <div className="space-y-4 pt-2">
+            <div><Label>Title</Label><Input className="rounded-xl mt-1" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
+            <div><Label>Description</Label><Textarea className="rounded-xl mt-1" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Assign to</Label>
+                <Select value={form.assignee_id} onValueChange={(v) => setForm({ ...form, assignee_id: v })}>
+                  <SelectTrigger className="rounded-xl mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="unassigned">Unassigned</SelectItem>{emps.map((e) => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div><Label>Priority</Label>
+                <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
+                  <SelectTrigger className="rounded-xl mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>{["Low", "Medium", "High"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div><Label>Due date</Label><Input type="date" className="rounded-xl mt-1" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></div>
+            <div className="flex gap-2 pt-2">
+              <Button onClick={saveEdit} disabled={editBusy || !form.title} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{editBusy ? "Saving..." : "Save Changes"}</Button>
+              <Button variant="outline" onClick={() => setIsEditing(false)} className="rounded-xl">Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <DialogHeader>
+              <div className="flex items-center justify-between w-full pr-6">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${PRIORITY[t.priority].chip}`}><span className={`w-1.5 h-1.5 rounded-full ${PRIORITY[t.priority].dot}`} />{t.priority}</span>
+                {canEdit && <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-7 text-xs px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">Edit Task</Button>}
+              </div>
+              <DialogTitle className="font-heading text-xl pt-1">{t.title}</DialogTitle>
+            </DialogHeader>
+            {t.description && <p className="text-sm text-slate-600">{t.description}</p>}
+            <div className="flex items-center gap-4 text-sm text-slate-500">
+              {t.assignee_name && <span className="flex items-center gap-2"><Avatar name={t.assignee_name} size={24} /> {t.assignee_name}</span>}
+              {t.due_date && <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {shortDate(t.due_date)}</span>}
+            </div>
+          </>
+        )}
         <Select value={t.status} onValueChange={changeStatus}>
           <SelectTrigger className="rounded-xl w-full" data-testid="detail-status"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="todo">To Do</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent>

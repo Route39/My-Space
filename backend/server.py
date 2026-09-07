@@ -209,6 +209,7 @@ class LeaveIn(BaseModel):
 class ChatMsgIn(BaseModel):
     message: str
     mentions: List[str] = []
+    recipient_id: str = "group"
 
 class TaskIn(BaseModel):
     title: str
@@ -807,10 +808,18 @@ async def auto_fix_missing_checkouts(emp_id: Optional[str] = None, org_id: Optio
                     co_dt = ci_dt
                 co = co_dt.isoformat()
                 hrs = hours_between(r["check_in"], co)
-                await db.attendance.update_one({"id": r["id"]}, {"$set": {"check_out": co, "hours": hrs}})
+                await db.attendance.update_one({"id": r["id"]}, {"$set": {"check_out": co, "hours": hrs, "auto_checkout": True}})
     except Exception as e:
         import logging
         logging.error(f"Error in auto_fix_missing_checkouts: {e}")
+
+@api.get("/attendance/missed_checkouts")
+async def get_missed_checkouts(user: dict = Depends(require_roles("admin", "team_leader"))):
+    records = await db.attendance.find({"org_id": user["org_id"], "auto_checkout": True}).sort("date", -1).to_list(100)
+    for r in records:
+        emp = await db.employees.find_one({"id": r["employee_id"]})
+        r["employee_name"] = emp["name"] if emp else "Unknown"
+    return records
 
 @api.get("/attendance/me")
 async def my_attendance(range: str = "month", user: dict = Depends(get_current_user)):
@@ -1399,6 +1408,48 @@ async def process_due_reminders(user: dict):
                 await db.myspace_items.update_one({"id": it["id"]}, {"$set": {"reminder_sent": True}})
 
 
+from datetime import timedelta
+
+@api.get("/myspace/active_reminders")
+async def get_active_reminders(user: dict = Depends(get_current_user)):
+    now = now_ist()
+    target = now + timedelta(minutes=10)
+    items = await db.myspace_items.find({
+        "owner_id": user["id"],
+        "type": "reminder",
+        "status": {"$ne": "completed"},
+        "reminder_sent": {"$ne": True}
+    }, {"_id": 0}).to_list(100)
+    
+    due_items = []
+    for it in items:
+        if not it.get("reminder_date") or not it.get("reminder_time"):
+            continue
+        try:
+            rm_dt = datetime.strptime(f'{it["reminder_date"]} {it["reminder_time"]}', "%Y-%m-%d %H:%M").replace(tzinfo=now.tzinfo)
+            snoozed_until = it.get("snoozed_until")
+            if snoozed_until:
+                sz_dt = datetime.fromisoformat(snoozed_until)
+                if now < sz_dt:
+                    continue
+            if target >= rm_dt:
+                due_items.append(it)
+        except Exception:
+            pass
+    return due_items
+
+@api.put("/myspace/{item_id}/snooze")
+async def snooze_reminder(item_id: str, user: dict = Depends(get_current_user)):
+    now = now_ist()
+    sz_dt = now + timedelta(minutes=5)
+    await db.myspace_items.update_one({"id": item_id, "owner_id": user["id"]}, {"$set": {"snoozed_until": sz_dt.isoformat()}})
+    return {"ok": True}
+
+@api.put("/myspace/{item_id}/dismiss")
+async def dismiss_reminder(item_id: str, user: dict = Depends(get_current_user)):
+    await db.myspace_items.update_one({"id": item_id, "owner_id": user["id"]}, {"$set": {"reminder_sent": True}})
+    return {"ok": True}
+
 @api.get("/myspace")
 async def list_myspace(filter: str = "all", q: Optional[str] = None, status: Optional[str] = None, user: dict = Depends(get_current_user)):
     team = await my_team_id(user)
@@ -1532,6 +1583,13 @@ async def create_announcement(body: AnnouncementIn, user: dict = Depends(require
     }
     await db.announcements.insert_one(doc)
     doc.pop("_id", None)
+    
+    # Notify all staff
+    users = await db.users.find({"org_id": user["org_id"]}).to_list(None)
+    for u in users:
+        if u["id"] != user["id"]:
+            await create_notification(u["id"], "announcement", f"New Announcement: {body.title}")
+            
     return doc
 
 @api.delete("/announcements/{ann_id}")
@@ -1546,19 +1604,28 @@ async def delete_announcement(ann_id: str, user: dict = Depends(require_roles("a
 # ---------------- chat ----------------
 
 @api.get("/chat/messages")
-async def get_chat_messages(user: dict = Depends(get_current_user)):
-    # Find messages where:
-    # 1. user is not in deleted_for
-    # 2. mentions array is empty OR user is the sender OR user is mentioned
-    query = {
-        "org_id": user["org_id"],
-        "deleted_for": {"$ne": user["id"]},
-        "$or": [
-            {"mentions": {"$size": 0}},
-            {"mentions": user["id"]},
-            {"sender_id": user["id"]}
-        ]
-    }
+async def get_chat_messages(recipient_id: Optional[str] = "group", user: dict = Depends(get_current_user)):
+    # Legacy fallback: some older messages might not have recipient_id, treat them as group messages if no mentions
+    if recipient_id == "group":
+        query = {
+            "org_id": user["org_id"],
+            "deleted_for": {"$ne": user["id"]},
+            "$or": [
+                {"recipient_id": "group"},
+                {"recipient_id": {"$exists": False}, "mentions": {"$size": 0}},
+                {"recipient_id": {"$exists": False}, "mentions": user["id"]},
+                {"recipient_id": {"$exists": False}, "sender_id": user["id"]}
+            ]
+        }
+    else:
+        query = {
+            "org_id": user["org_id"],
+            "deleted_for": {"$ne": user["id"]},
+            "$or": [
+                {"sender_id": user["id"], "recipient_id": recipient_id},
+                {"sender_id": recipient_id, "recipient_id": user["id"]}
+            ]
+        }
     msgs = await db.chats.find(query).sort("created_at", -1).limit(50).to_list(None)
     msgs.reverse()
     
@@ -1576,6 +1643,11 @@ async def get_chat_messages(user: dict = Depends(get_current_user)):
 
 @api.post("/chat/messages")
 async def send_chat_message(body: ChatMsgIn, user: dict = Depends(get_current_user)):
+    if user["role"] == "staff" and body.recipient_id != "group":
+        recipient = await db.users.find_one({"id": body.recipient_id})
+        if not recipient or recipient.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Staff can only message admins and the group")
+            
     msg_id = uid()
     doc = {
         "id": msg_id,
@@ -1583,7 +1655,9 @@ async def send_chat_message(body: ChatMsgIn, user: dict = Depends(get_current_us
         "sender_id": user["id"],
         "message": body.message,
         "mentions": body.mentions,
+        "recipient_id": body.recipient_id,
         "deleted_for": [],
+        "read_by": [user["id"]],
         "created_at": now_ist().isoformat()
     }
     await db.chats.insert_one(doc)
@@ -1595,31 +1669,86 @@ async def send_chat_message(body: ChatMsgIn, user: dict = Depends(get_current_us
     return {"status": "ok", "id": msg_id}
 
 @api.delete("/chat/messages/{msg_id}")
-async def delete_chat_message(msg_id: str, for_everyone: bool = False, user: dict = Depends(get_current_user)):
+async def delete_chat_message(msg_id: str, for_everyone: str = "false", user: dict = Depends(get_current_user)):
     msg = await db.chats.find_one({"id": msg_id, "org_id": user["org_id"]})
     if not msg:
-        raise HTTPException(status_code=404, detail="Not found")
-        
-    if for_everyone:
-        if msg["sender_id"] != user["id"] and user["role"] != "admin":
-            raise HTTPException(status_code=403, detail="Not authorized to delete for everyone")
+        raise HTTPException(status_code=404, detail="Message not found")
+    if for_everyone == "true" and msg["sender_id"] == user["id"]:
         await db.chats.delete_one({"id": msg_id})
     else:
         await db.chats.update_one({"id": msg_id}, {"$addToSet": {"deleted_for": user["id"]}})
-        
     return {"ok": True}
 
-@api.delete("/chat/clear")
-async def clear_chat(user: dict = Depends(get_current_user)):
-    # Add user to deleted_for on all existing messages for this user
+@api.get("/chat/unread_count")
+async def get_unread_chat_count(user: dict = Depends(get_current_user)):
     query = {
         "org_id": user["org_id"],
+        "sender_id": {"$ne": user["id"]},
+        "deleted_for": {"$ne": user["id"]},
+        "read_by": {"$ne": user["id"]},
         "$or": [
-            {"mentions": {"$size": 0}},
-            {"mentions": user["id"]},
-            {"sender_id": user["id"]}
+            {"recipient_id": "group"},
+            {"recipient_id": user["id"]}
         ]
     }
+    count = await db.chats.count_documents(query)
+    return {"count": count}
+
+@api.put("/chat/read/{recipient_id}")
+async def mark_chat_read(recipient_id: str, user: dict = Depends(get_current_user)):
+    if recipient_id == "group":
+        query = {"org_id": user["org_id"], "recipient_id": "group", "read_by": {"$ne": user["id"]}}
+    else:
+        query = {"org_id": user["org_id"], "sender_id": recipient_id, "recipient_id": user["id"], "read_by": {"$ne": user["id"]}}
+    await db.chats.update_many(query, {"$addToSet": {"read_by": user["id"]}})
+    return {"ok": True}
+
+@api.get("/chat/contacts")
+async def chat_contacts(user: dict = Depends(get_current_user)):
+    org_id = user["org_id"]
+    contacts = []
+    
+    if user["role"] == "staff":
+        admins = await db.users.find({"org_id": org_id, "role": "admin"}, {"_id": 0}).to_list(100)
+        for a in admins:
+            emp = await db.employees.find_one({"user_id": a["id"]})
+            contacts.append({
+                "id": emp["id"] if emp else a["id"],
+                "user_id": a["id"],
+                "name": emp["name"] if emp else a.get("name", "Admin"),
+                "photo": emp.get("photo") if emp else None,
+                "role": "admin"
+            })
+    else:
+        emps = await db.employees.find({"org_id": org_id}, {"_id": 0}).to_list(500)
+        for e in emps:
+            contacts.append({
+                "id": e["id"],
+                "user_id": e.get("user_id"),
+                "name": e["name"],
+                "photo": e.get("photo")
+            })
+            
+    return [c for c in contacts if c.get("user_id") != user["id"]]
+
+@api.delete("/chat/clear")
+async def clear_chat(recipient_id: Optional[str] = "group", user: dict = Depends(get_current_user)):
+    if recipient_id == "group":
+        query = {
+            "org_id": user["org_id"],
+            "$or": [
+                {"recipient_id": "group"},
+                {"recipient_id": {"$exists": False}}
+            ]
+        }
+    else:
+        query = {
+            "org_id": user["org_id"],
+            "$or": [
+                {"sender_id": user["id"], "recipient_id": recipient_id},
+                {"sender_id": recipient_id, "recipient_id": user["id"]}
+            ]
+        }
     await db.chats.update_many(query, {"$addToSet": {"deleted_for": user["id"]}})
     return {"ok": True}
 

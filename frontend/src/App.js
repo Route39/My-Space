@@ -16,6 +16,7 @@ import Payroll from "@/pages/Payroll";
 import Payslip from "@/pages/Payslip";
 import Settings from "@/pages/Settings";
 import Profile from "@/pages/Profile";
+import ChatPage from "@/pages/ChatPage";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="/payslip" element={<Protected><Payslip /></Protected>} />
         <Route path="/settings" element={<Protected roles={["admin"]}><Settings /></Protected>} />
         <Route path="/profile" element={<Protected><Profile /></Protected>} />
+        <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <LeaveApprovalPopup />
