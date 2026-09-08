@@ -19,7 +19,7 @@ import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
 import { isWithinInterval, startOfDay, endOfDay, parseISO } from "date-fns";
 
-const TYPES = ["Casual Leave", "Sick Leave", "Unpaid Leave", "Other"];
+const TYPES = ["Casual Leave", "Sick Leave", "Work from Home", "Unpaid Leave", "Other"];
 
 export default function Leave() {
   const { user } = useAuth();
@@ -411,7 +411,7 @@ function ManagerLeave() {
             </div>
           )}
 
-          {/* Missed Checkouts */}
+          {/* missed Chekout */}
           <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
             <h2 className="font-heading font-semibold text-slate-800 mb-3 flex items-center justify-between">
               Missed Checkouts

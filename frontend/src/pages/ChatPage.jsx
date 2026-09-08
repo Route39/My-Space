@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageCircle, Send, MoreVertical, Trash2, Users } from "lucide-react";
+import { MessageCircle, Send, MoreVertical, Trash2, Users, Settings } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/components/common";
@@ -15,26 +15,41 @@ export default function ChatPage() {
   const [mentionMode, setMentionMode] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [drafts, setDrafts] = useState({});
-  
+  const [groups, setGroups] = useState([]);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupMembers, setNewGroupMembers] = useState([]);
+  const [editGroupId, setEditGroupId] = useState(null);
+
   const messagesEndRef = useRef(null);
-  const lastMsgIdRef = useRef(null);
+  const lastMsgIdsRef = useRef({});
+  const activeChatRef = useRef(activeChat);
+
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
   const fetchMessages = async () => {
-    if (!activeChat) return;
+    const currentChat = activeChatRef.current;
+    if (!currentChat) return;
     try {
       const { data } = await api.get(`/chat/messages?recipient_id=${activeChat}`);
+      // Prevent state updates if we switched chats while the request was pending
+      if (activeChatRef.current !== currentChat) return;
+
       setMessages(data);
-      await api.put(`/chat/read/${activeChat}`).catch(() => {});
-      
+      await api.put(`/chat/read/${currentChat}`).catch(() => { });
+
       if (data.length > 0) {
         const lastMsg = data[data.length - 1];
-        if (lastMsgIdRef.current && lastMsgIdRef.current !== lastMsg.id) {
+        const knownLastId = lastMsgIdsRef.current[currentChat];
+
+        if (knownLastId && knownLastId !== lastMsg.id) {
           if (lastMsg.sender_id !== user.id) {
-            const audio = new Audio("/ringtone/text_message.mp3");
-            audio.play().catch(e => console.log("Audio play blocked"));
+            window.playChatSound?.();
           }
         }
-        lastMsgIdRef.current = lastMsg.id;
+        lastMsgIdsRef.current[currentChat] = lastMsg.id;
       }
     } catch (err) {
       console.error(err);
@@ -48,13 +63,23 @@ export default function ChatPage() {
     } catch (err) { }
   };
 
+  const fetchGroups = async () => {
+    try {
+      const { data } = await api.get("/chat/groups");
+      setGroups(data);
+      if (activeChat === "group") {
+        if (data.length > 0) setActiveChat(data[0].id);
+      }
+    } catch (err) { }
+  };
+
   useEffect(() => {
     fetchStaff();
+    fetchGroups();
   }, []);
 
   // Poll for messages in the active chat
   useEffect(() => {
-    lastMsgIdRef.current = null;
     fetchMessages();
     const interval = setInterval(fetchMessages, 3000);
     return () => clearInterval(interval);
@@ -74,7 +99,7 @@ export default function ChatPage() {
     const val = e.target.value;
     setText(val);
     setDrafts(prev => ({ ...prev, [activeChat]: val }));
-    
+
     if (activeChat === "group") {
       const lastWord = val.split(" ").pop();
       if (lastWord.startsWith("@")) {
@@ -108,9 +133,9 @@ export default function ChatPage() {
   const send = async (e) => {
     e.preventDefault();
     if (!text.trim()) return;
-    
+
     const mentions = [];
-    if (activeChat === "group") {
+    if (activeChat === "group" || activeChat.startsWith("grp_")) {
       staffList.forEach(s => {
         if (text.includes(`@${s.name}`)) {
           mentions.push(s.user_id || s.id);
@@ -122,14 +147,14 @@ export default function ChatPage() {
     setText("");
     setDrafts(prev => ({ ...prev, [activeChat]: "" }));
     setMentionMode(false);
-    
+
     playSendSound();
-    
+
     try {
-      await api.post("/chat/messages", { 
-        message: msg, 
-        mentions: mentions, 
-        recipient_id: activeChat 
+      await api.post("/chat/messages", {
+        message: msg,
+        mentions: mentions,
+        recipient_id: activeChat
       });
       fetchMessages();
     } catch (err) {
@@ -157,7 +182,60 @@ export default function ChatPage() {
     }
   };
 
+  const saveGroup = async () => {
+    if (!newGroupName.trim() || newGroupMembers.length === 0) return;
+    try {
+      if (editGroupId) {
+        await api.put(`/chat/groups/${editGroupId}`, {
+          name: newGroupName,
+          members: newGroupMembers
+        });
+      } else {
+        await api.post("/chat/groups", {
+          name: newGroupName,
+          members: newGroupMembers
+        });
+      }
+      setShowCreateGroup(false);
+      setNewGroupName("");
+      setNewGroupMembers([]);
+      setEditGroupId(null);
+      fetchGroups();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const deleteGroup = async () => {
+    if (!window.confirm("Are you sure you want to permanently delete this group and all its messages?")) return;
+    try {
+      await api.delete(`/chat/groups/${editGroupId}`);
+      setShowCreateGroup(false);
+      setEditGroupId(null);
+      setActiveChat("group"); 
+      fetchGroups();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const openCreateGroup = () => {
+    setEditGroupId(null);
+    setNewGroupName("");
+    setNewGroupMembers([]);
+    setShowCreateGroup(true);
+  };
+
   const activeUser = activeChat === "group" ? null : staffList.find(s => (s.user_id || s.id) === activeChat);
+  const activeGroup = groups.find(g => g.id === activeChat);
+
+  const openEditGroup = () => {
+    if (!activeGroup) return;
+    setEditGroupId(activeGroup.id);
+    setNewGroupName(activeGroup.name);
+    setNewGroupMembers(activeGroup.members);
+    setShowCreateGroup(true);
+  };
 
   return (
     <div className="h-[calc(100vh-6rem)] bg-white rounded-2xl border border-slate-200 overflow-hidden flex shadow-sm">
@@ -167,19 +245,36 @@ export default function ChatPage() {
           <h2 className="font-heading font-bold text-xl text-slate-800">Chats</h2>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {/* Staff Group Chat */}
-          <div 
-            onClick={() => setActiveChat("group")}
-            className={`p-4 flex items-center gap-3 cursor-pointer transition-colors border-b border-slate-100 ${activeChat === "group" ? "bg-emerald-50" : "hover:bg-slate-100"}`}
-          >
-            <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
-              <Users size={24} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-slate-800 truncate">Staff Group</h3>
-              <p className="text-xs text-slate-500 truncate">All team members</p>
-            </div>
+          {/* Custom Groups */}
+          <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Groups</p>
+            {(user.role === "admin" || user.role === "admin_staff") && (
+              <button
+                onClick={openCreateGroup}
+                className="text-xs text-emerald-600 font-medium hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-md transition-colors"
+              >
+                + New Group
+              </button>
+            )}
           </div>
+          {groups.map(g => (
+            <div
+              key={g.id}
+              onClick={() => setActiveChat(g.id)}
+              className={`p-3 mx-2 rounded-xl flex items-center gap-3 cursor-pointer transition-colors ${activeChat === g.id ? "bg-emerald-50" : "hover:bg-slate-100"}`}
+            >
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+                <Users size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-slate-800 truncate">{g.name}</h3>
+                <p className="text-xs text-slate-500 truncate">{g.members.length} members</p>
+              </div>
+            </div>
+          ))}
+          {groups.length === 0 && (
+            <div className="px-4 py-2 text-xs text-slate-400 italic">No groups yet</div>
+          )}
 
           {/* Individual Staff Members */}
           <div className="px-4 pt-4 pb-2">
@@ -188,7 +283,7 @@ export default function ChatPage() {
           {staffList.map(staff => {
             const uid = staff.user_id || staff.id;
             return (
-              <div 
+              <div
                 key={uid}
                 onClick={() => setActiveChat(uid)}
                 className={`p-3 mx-2 rounded-xl flex items-center gap-3 cursor-pointer transition-colors ${activeChat === uid ? "bg-emerald-50" : "hover:bg-slate-100"}`}
@@ -215,7 +310,7 @@ export default function ChatPage() {
         {/* Chat Header */}
         <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-10">
           <div className="flex items-center gap-4">
-            {activeChat === "group" ? (
+            {activeGroup ? (
               <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                 <Users size={20} />
               </div>
@@ -223,11 +318,16 @@ export default function ChatPage() {
               <Avatar name={activeUser?.name || "Unknown"} size={40} />
             )}
             <div>
-              <h3 className="font-heading font-semibold text-slate-800 text-lg">
-                {activeChat === "group" ? "Staff Group" : activeUser?.name}
+              <h3 className="font-heading font-semibold text-slate-800 text-lg flex items-center gap-2">
+                {activeGroup ? activeGroup.name : activeUser?.name}
+                {activeGroup && (user.role === "admin" || user.role === "admin_staff") && (
+                  <button onClick={openEditGroup} className="text-slate-400 hover:text-emerald-600 transition-colors p-1" title="Group Settings">
+                    <Settings size={16} />
+                  </button>
+                )}
               </h3>
               <p className="text-xs text-slate-500">
-                {activeChat === "group" ? "Company-wide announcements & chat" : (activeUser?.role === "admin" ? "Admin" : (activeUser?.designation || "Staff"))}
+                {activeGroup ? `${activeGroup.members.length} members` : (activeUser?.role === "admin" ? "Admin" : (activeUser?.designation || "Staff"))}
               </p>
             </div>
           </div>
@@ -248,8 +348,9 @@ export default function ChatPage() {
           {messages.map((msg, i) => {
             const isMe = msg.sender_id === user.id;
             const time = new Date(msg.created_at);
-            const showName = !isMe && activeChat === "group" && (i === 0 || messages[i-1].sender_id !== msg.sender_id);
-            
+            const isGroup = activeGroup || activeChat === "group";
+            const showName = !isMe && isGroup && (i === 0 || messages[i - 1].sender_id !== msg.sender_id);
+
             return (
               <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                 <div className={`group relative max-w-[75%] rounded-2xl px-4 py-2 shadow-sm ${isMe ? 'bg-[#E7FFDB] text-slate-800 rounded-tr-sm' : 'bg-white text-slate-800 rounded-tl-sm'}`}>
@@ -287,11 +388,11 @@ export default function ChatPage() {
         {/* Input */}
         <div className="bg-[#F0F2F5] px-6 py-4 flex gap-4 shrink-0 relative">
           {/* Mention Dropdown */}
-          {mentionMode && activeChat === "group" && (
+          {mentionMode && (activeGroup || activeChat === "group") && (
             <div className="absolute bottom-full left-6 mb-2 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto w-64 z-20">
               {staffList.filter(s => s.name.toLowerCase().includes(mentionQuery)).map(s => (
-                <div 
-                  key={s.id} 
+                <div
+                  key={s.id}
                   onClick={() => insertMention(s)}
                   className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3"
                 >
@@ -304,9 +405,9 @@ export default function ChatPage() {
               )}
             </div>
           )}
-          
+
           <form onSubmit={send} className="flex-1 flex gap-3">
-            <input 
+            <input
               id="chat-input"
               type="text"
               className="flex-1 bg-white rounded-full px-6 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm border-none"
@@ -314,7 +415,7 @@ export default function ChatPage() {
               value={text}
               onChange={handleTextChange}
             />
-            <button 
+            <button
               type="submit"
               disabled={!text.trim()}
               className="w-12 h-12 bg-emerald-600 rounded-full flex items-center justify-center text-white shrink-0 shadow-sm hover:bg-emerald-700 disabled:opacity-50 transition-colors"
@@ -324,6 +425,77 @@ export default function ChatPage() {
           </form>
         </div>
       </div>
+
+      {/* Create/Edit Group Modal */}
+      {showCreateGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-heading font-semibold text-slate-800 text-lg">{editGroupId ? "Edit Group" : "Create New Group"}</h3>
+              <button onClick={() => setShowCreateGroup(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <Trash2 size={18} className="rotate-45" />
+                <span className="sr-only">Close</span>
+              </button>
+            </div>
+            <div className="p-6">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Group Name</label>
+              <input
+                type="text"
+                value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+                placeholder="e.g. Marketing Team"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-5"
+              />
+
+              <label className="block text-sm font-medium text-slate-700 mb-2">Select Members</label>
+              <div className="max-h-60 overflow-y-auto border border-slate-100 rounded-xl bg-slate-50/50 p-2 space-y-1">
+                {staffList.map(staff => {
+                  const uid = staff.user_id || staff.id;
+                  const isSelected = newGroupMembers.includes(uid);
+                  return (
+                    <label key={uid} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-100 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) setNewGroupMembers([...newGroupMembers, uid]);
+                          else setNewGroupMembers(newGroupMembers.filter(id => id !== uid));
+                        }}
+                        className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                      />
+                      <Avatar name={staff.name} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{staff.name}</p>
+                        <p className="text-xs text-slate-500 truncate">{staff.designation || staff.role}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                {editGroupId && (
+                  <button onClick={deleteGroup} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors">
+                    Delete Group
+                  </button>
+                )}
+                {!editGroupId && (
+                  <button onClick={() => setShowCreateGroup(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={saveGroup}
+                  disabled={!newGroupName.trim() || newGroupMembers.length === 0}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                >
+                  {editGroupId ? "Save Changes" : "Create Group"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

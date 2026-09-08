@@ -95,7 +95,10 @@ async def get_current_user(request: Request) -> dict:
 
 def require_roles(*roles):
     async def dep(user: dict = Depends(get_current_user)):
-        if user["role"] not in roles:
+        allowed = list(roles)
+        if "admin" in allowed and "admin_staff" not in allowed:
+            allowed.append("admin_staff")
+        if user["role"] not in allowed:
             raise HTTPException(status_code=403, detail="Not allowed")
         return user
     return dep
@@ -744,6 +747,7 @@ async def checkin(user: dict = Depends(get_current_user)):
     existing = await db.attendance.find_one({"employee_id": emp["id"], "date": today})
     if existing and existing.get("check_in"):
         raise HTTPException(status_code=400, detail="Already checked in")
+        
     shift = await db.shifts.find_one({"id": emp.get("shift_id")}, {"_id": 0}) if emp.get("shift_id") else None
     ci = now_ist().isoformat()
     status = compute_status(ci, shift)
@@ -753,11 +757,18 @@ async def checkin(user: dict = Depends(get_current_user)):
         if len(last_3) == 3 and all(a.get("status") in ("Late", "Half Day") for a in last_3):
             status = "Half Day"
 
-    doc = {"id": uid(), "org_id": user["org_id"], "employee_id": emp["id"],
-           "date": today, "check_in": ci, "check_out": None, "hours": 0, "status": status}
-    await db.attendance.insert_one(doc)
+    if existing:
+        # If admin changed Leave -> Present, we keep it as Present/Late based on time
+        new_status = status if existing.get("status") == "Leave" else existing.get("status", status)
+        await db.attendance.update_one({"id": existing["id"]}, {"$set": {"check_in": ci, "status": new_status}})
+        doc = await db.attendance.find_one({"id": existing["id"]}, {"_id": 0})
+    else:
+        doc = {"id": uid(), "org_id": user["org_id"], "employee_id": emp["id"],
+               "date": today, "check_in": ci, "check_out": None, "hours": 0, "status": status}
+        await db.attendance.insert_one(doc)
+        doc.pop("_id", None)
+        
     await log_activity(user["org_id"], f"{emp['name']} checked in")
-    doc.pop("_id", None)
     return doc
 
 
@@ -815,6 +826,7 @@ async def auto_fix_missing_checkouts(emp_id: Optional[str] = None, org_id: Optio
 
 @api.get("/attendance/missed_checkouts")
 async def get_missed_checkouts(user: dict = Depends(require_roles("admin", "team_leader"))):
+    await auto_fix_missing_checkouts(org_id=user["org_id"])
     records = await db.attendance.find({"org_id": user["org_id"], "auto_checkout": True}).sort("date", -1).to_list(100)
     for r in records:
         emp = await db.employees.find_one({"id": r["employee_id"]})
@@ -1012,7 +1024,8 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
         elif cat == "Permission":
             await mark_attendance(leave["employee_id"], d.isoformat(), "Permission", user)
         else:
-            await mark_attendance(leave["employee_id"], d.isoformat(), "Leave", user)
+            status_to_mark = "Work from Home" if leave["leave_type"] == "Work from Home" else "Leave"
+            await mark_attendance(leave["employee_id"], d.isoformat(), status_to_mark, user)
         d += timedelta(days=1)
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
@@ -1122,7 +1135,26 @@ async def toggle_checklist(task_id: str, body: ChecklistToggleIn, user: dict = D
     await ensure_task(task_id, user)
     await db.tasks.update_one({"id": task_id, "org_id": user["org_id"], "checklist.id": body.item_id},
                               {"$set": {"checklist.$.done": body.done}})
-    return await db.tasks.find_one({"id": task_id, "org_id": user["org_id"]}, {"_id": 0})
+                              
+    t = await db.tasks.find_one({"id": task_id, "org_id": user["org_id"]})
+    if t and t.get("checklist"):
+        done_count = sum(1 for c in t["checklist"] if c.get("done"))
+        total = len(t["checklist"])
+        new_status = t["status"]
+        
+        if done_count == total and total > 0:
+            new_status = "completed"
+        elif done_count > 0 and done_count < total:
+            new_status = "in_progress"
+        elif done_count == 0 and t["status"] != "todo":
+            new_status = "todo"
+            
+        if new_status != t["status"]:
+            await db.tasks.update_one({"id": task_id, "org_id": user["org_id"]}, {"$set": {"status": new_status}})
+            t["status"] = new_status
+            
+    t.pop("_id", None)
+    return t
 
 
 @api.post("/tasks/{task_id}/comments")
@@ -1291,13 +1323,18 @@ async def read_all(user: dict = Depends(get_current_user)):
 @api.get("/dashboard")
 async def dashboard(user: dict = Depends(get_current_user)):
     today = today_str()
-    if user["role"] in ("admin", "team_leader"):
+    is_admin = user["role"] in ("admin", "team_leader", "admin_staff")
+    is_staff = user["role"] in ("staff", "admin_staff")
+    
+    out = {"role": user["role"]}
+    tasks = await list_tasks(user)
+    
+    if is_admin:
         rows = await all_attendance(date=today, user=user)
         emp_count = len(rows)
         present = len([r for r in rows if r["status"] in ("Present", "Late")])
         late = len([r for r in rows if r["status"] == "Late"])
         on_leave = len([r for r in rows if r["status"] == "Leave"])
-        tasks = await list_tasks(user)
         task_counts = {
             "todo": len([t for t in tasks if t["status"] == "todo"]),
             "in_progress": len([t for t in tasks if t["status"] == "in_progress"]),
@@ -1308,28 +1345,46 @@ async def dashboard(user: dict = Depends(get_current_user)):
         payroll = await db.payroll.find({"org_id": user["org_id"], "month": month}, {"_id": 0}).to_list(500)
         payroll_total = round(sum(p["net"] for p in payroll), 2)
         acts = await db.activities.find({"org_id": user["org_id"]}, {"_id": 0}).sort("created_at", -1).to_list(5)
-        return {"role": user["role"], "stats": {"employees": emp_count, "present": present, "late": late, "on_leave": on_leave},
-                "attendance_today": rows, "task_counts": task_counts, "payroll_total": payroll_total,
-                "activities": acts}
-    else:
+        out.update({
+            "stats": {"employees": emp_count, "present": present, "late": late, "on_leave": on_leave},
+            "attendance_today": rows, "task_counts": task_counts, "payroll_total": payroll_total,
+            "activities": acts
+        })
+        
+    if is_staff:
         emp = await get_employee_for_user(user)
         todoc = await db.attendance.find_one({"employee_id": emp["id"], "date": today}, {"_id": 0}) if emp else None
-        tasks = await list_tasks(user)
-        task_counts = {
-            "todo": len([t for t in tasks if t["status"] == "todo"]),
-            "in_progress": len([t for t in tasks if t["status"] == "in_progress"]),
-            "completed": len([t for t in tasks if t["status"] == "completed"]),
-        }
+        
+        if not is_admin:
+            task_counts = {
+                "todo": len([t for t in tasks if t["status"] == "todo"]),
+                "in_progress": len([t for t in tasks if t["status"] == "in_progress"]),
+                "completed": len([t for t in tasks if t["status"] == "completed"]),
+            }
+            out["task_counts"] = task_counts
+            
         bal = await db.leave_balances.find_one({"employee_id": emp["id"]}, {"_id": 0}) if emp else None
         available = 0
         if bal:
             available = (bal["casual"] - bal["used_casual"]) + (bal["sick"] - bal["used_sick"])
+            
         latest = None
         open_tasks = [t for t in tasks if t["status"] != "completed"]
         if open_tasks:
             latest = open_tasks[0]
-        return {"role": "staff", "employee": emp, "today": todoc,
-                "task_counts": task_counts, "leave_available": available, "latest_task": latest}
+            
+        out.update({
+            "employee": emp, "today": todoc,
+            "leave_available": available, "latest_task": latest
+        })
+        # Check if they are officially on leave today (Approved leaves automatically set todoc status to Leave)
+        is_on_leave = False
+        if todoc and todoc.get("status") == "Leave":
+            is_on_leave = True
+            
+        out["is_on_leave_today"] = is_on_leave
+        
+    return out
 
 
 # ---------------- My Space ----------------
@@ -1389,7 +1444,7 @@ async def can_view_item(item: dict, user: dict) -> bool:
 async def process_due_reminders(user: dict):
     now = now_ist()
     items = await db.myspace_items.find({"org_id": user["org_id"], "owner_id": user["id"],
-                                         "type": "reminder", "reminder_sent": {"$ne": True}}, {"_id": 0}).to_list(200)
+                                         "type": "reminder", "bell_notification_sent": {"$ne": True}}, {"_id": 0}).to_list(200)
     for it in items:
         if not it.get("reminder_date"):
             continue
@@ -1403,9 +1458,9 @@ async def process_due_reminders(user: dict):
             rep = it.get("repeat", "none")
             if rep and rep != "none":
                 nd = date.fromisoformat(it["reminder_date"]) + (timedelta(days=1) if rep == "daily" else timedelta(days=7) if rep == "weekly" else timedelta(days=30))
-                await db.myspace_items.update_one({"id": it["id"]}, {"$set": {"reminder_date": nd.isoformat(), "reminder_sent": False}})
+                await db.myspace_items.update_one({"id": it["id"]}, {"$set": {"reminder_date": nd.isoformat(), "bell_notification_sent": False, "reminder_sent": False}})
             else:
-                await db.myspace_items.update_one({"id": it["id"]}, {"$set": {"reminder_sent": True}})
+                await db.myspace_items.update_one({"id": it["id"]}, {"$set": {"bell_notification_sent": True}})
 
 
 from datetime import timedelta
@@ -1413,7 +1468,7 @@ from datetime import timedelta
 @api.get("/myspace/active_reminders")
 async def get_active_reminders(user: dict = Depends(get_current_user)):
     now = now_ist()
-    target = now + timedelta(minutes=10)
+    target = now + timedelta(minutes=5)
     items = await db.myspace_items.find({
         "owner_id": user["id"],
         "type": "reminder",
@@ -1603,8 +1658,66 @@ async def delete_announcement(ann_id: str, user: dict = Depends(require_roles("a
 
 # ---------------- chat ----------------
 
+class ChatGroupIn(BaseModel):
+    name: str
+    members: list[str]
+
+@api.post("/chat/groups")
+async def create_chat_group(body: ChatGroupIn, user: dict = Depends(require_roles("admin", "admin_staff"))):
+    group_id = "grp_" + uid()
+    members = body.members
+    if user["id"] not in members:
+        members.append(user["id"])
+        
+    doc = {
+        "id": group_id,
+        "org_id": user["org_id"],
+        "name": body.name,
+        "created_by": user["id"],
+        "members": members,
+        "created_at": now_ist().isoformat()
+    }
+    await db.chat_groups.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/chat/groups/{group_id}")
+async def update_chat_group(group_id: str, body: ChatGroupIn, user: dict = Depends(require_roles("admin", "admin_staff"))):
+    group = await db.chat_groups.find_one({"id": group_id, "org_id": user["org_id"]})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+        
+    members = body.members
+    if user["id"] not in members:
+        members.append(user["id"])
+        
+    await db.chat_groups.update_one(
+        {"id": group_id},
+        {"$set": {"name": body.name, "members": members}}
+    )
+    return {"ok": True}
+
+@api.delete("/chat/groups/{group_id}")
+async def delete_chat_group(group_id: str, user: dict = Depends(require_roles("admin", "admin_staff"))):
+    group = await db.chat_groups.find_one({"id": group_id, "org_id": user["org_id"]})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+        
+    await db.chat_groups.delete_one({"id": group_id})
+    # Also delete all messages in this group
+    await db.chats.delete_many({"recipient_id": group_id, "org_id": user["org_id"]})
+    return {"ok": True}
+
+@api.get("/chat/groups")
+async def get_chat_groups(user: dict = Depends(get_current_user)):
+    groups = await db.chat_groups.find({
+        "org_id": user["org_id"],
+        "members": user["id"]
+    }, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return groups
+
 @api.get("/chat/messages")
-async def get_chat_messages(recipient_id: Optional[str] = "group", user: dict = Depends(get_current_user)):
+async def get_chat_messages(recipient_id: str, user: dict = Depends(get_current_user)):
     # Legacy fallback: some older messages might not have recipient_id, treat them as group messages if no mentions
     if recipient_id == "group":
         query = {
@@ -1616,6 +1729,16 @@ async def get_chat_messages(recipient_id: Optional[str] = "group", user: dict = 
                 {"recipient_id": {"$exists": False}, "mentions": user["id"]},
                 {"recipient_id": {"$exists": False}, "sender_id": user["id"]}
             ]
+        }
+    elif recipient_id.startswith("grp_"):
+        # Verify user is in group
+        group = await db.chat_groups.find_one({"id": recipient_id, "members": user["id"]})
+        if not group:
+            raise HTTPException(status_code=403, detail="Not in group")
+        query = {
+            "org_id": user["org_id"],
+            "recipient_id": recipient_id,
+            "deleted_for": {"$ne": user["id"]}
         }
     else:
         query = {
@@ -1643,11 +1766,11 @@ async def get_chat_messages(recipient_id: Optional[str] = "group", user: dict = 
 
 @api.post("/chat/messages")
 async def send_chat_message(body: ChatMsgIn, user: dict = Depends(get_current_user)):
-    if user["role"] == "staff" and body.recipient_id != "group":
-        recipient = await db.users.find_one({"id": body.recipient_id})
-        if not recipient or recipient.get("role") != "admin":
-            raise HTTPException(status_code=403, detail="Staff can only message admins and the group")
-            
+    if body.recipient_id and body.recipient_id.startswith("grp_"):
+        group = await db.chat_groups.find_one({"id": body.recipient_id, "members": user["id"]})
+        if not group:
+            raise HTTPException(status_code=403, detail="Not in group")
+
     msg_id = uid()
     doc = {
         "id": msg_id,
@@ -1681,6 +1804,10 @@ async def delete_chat_message(msg_id: str, for_everyone: str = "false", user: di
 
 @api.get("/chat/unread_count")
 async def get_unread_chat_count(user: dict = Depends(get_current_user)):
+    # Get all groups user is in
+    user_groups = await db.chat_groups.find({"members": user["id"]}, {"id": 1}).to_list(100)
+    group_ids = [g["id"] for g in user_groups]
+    
     query = {
         "org_id": user["org_id"],
         "sender_id": {"$ne": user["id"]},
@@ -1688,7 +1815,8 @@ async def get_unread_chat_count(user: dict = Depends(get_current_user)):
         "read_by": {"$ne": user["id"]},
         "$or": [
             {"recipient_id": "group"},
-            {"recipient_id": user["id"]}
+            {"recipient_id": user["id"]},
+            {"recipient_id": {"$in": group_ids}}
         ]
     }
     count = await db.chats.count_documents(query)
@@ -1696,8 +1824,8 @@ async def get_unread_chat_count(user: dict = Depends(get_current_user)):
 
 @api.put("/chat/read/{recipient_id}")
 async def mark_chat_read(recipient_id: str, user: dict = Depends(get_current_user)):
-    if recipient_id == "group":
-        query = {"org_id": user["org_id"], "recipient_id": "group", "read_by": {"$ne": user["id"]}}
+    if recipient_id == "group" or recipient_id.startswith("grp_"):
+        query = {"org_id": user["org_id"], "recipient_id": recipient_id, "read_by": {"$ne": user["id"]}}
     else:
         query = {"org_id": user["org_id"], "sender_id": recipient_id, "recipient_id": user["id"], "read_by": {"$ne": user["id"]}}
     await db.chats.update_many(query, {"$addToSet": {"read_by": user["id"]}})
@@ -1708,25 +1836,34 @@ async def chat_contacts(user: dict = Depends(get_current_user)):
     org_id = user["org_id"]
     contacts = []
     
-    if user["role"] == "staff":
-        admins = await db.users.find({"org_id": org_id, "role": "admin"}, {"_id": 0}).to_list(100)
-        for a in admins:
-            emp = await db.employees.find_one({"user_id": a["id"]})
+    emps = await db.employees.find({"org_id": org_id}, {"_id": 0}).to_list(500)
+    
+    # Pre-fetch users to get roles
+    users = await db.users.find({"org_id": org_id}, {"id": 1, "role": 1, "name": 1, "_id": 0}).to_list(500)
+    user_roles = {u["id"]: u["role"] for u in users}
+    user_names = {u["id"]: u.get("name", "Admin") for u in users}
+
+    for e in emps:
+        uid = e.get("user_id")
+        role = user_roles.get(uid, "staff") if uid else "staff"
+        contacts.append({
+            "id": e["id"],
+            "user_id": uid,
+            "name": e["name"],
+            "photo": e.get("photo"),
+            "role": role,
+            "designation": e.get("designation")
+        })
+            
+    # Also add admins that might not have an employee record (like the main Admin)
+    for u in users:
+        if u["role"] == "admin" and not any(c.get("user_id") == u["id"] for c in contacts):
             contacts.append({
-                "id": emp["id"] if emp else a["id"],
-                "user_id": a["id"],
-                "name": emp["name"] if emp else a.get("name", "Admin"),
-                "photo": emp.get("photo") if emp else None,
+                "id": u["id"],
+                "user_id": u["id"],
+                "name": user_names.get(u["id"], "Admin"),
+                "photo": None,
                 "role": "admin"
-            })
-    else:
-        emps = await db.employees.find({"org_id": org_id}, {"_id": 0}).to_list(500)
-        for e in emps:
-            contacts.append({
-                "id": e["id"],
-                "user_id": e.get("user_id"),
-                "name": e["name"],
-                "photo": e.get("photo")
             })
             
     return [c for c in contacts if c.get("user_id") != user["id"]]

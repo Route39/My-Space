@@ -117,23 +117,27 @@ function ReminderDaemon() {
   }, []);
 
   const snooze = async (id) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setActiveReminders(prev => prev.filter(r => r.id !== id));
+    
     await api.put(`/myspace/${id}/snooze`);
     const { data } = await api.get("/myspace/active_reminders");
     setActiveReminders(data);
-    if (data.length === 0 && audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
   };
 
   const dismiss = async (id) => {
-    await api.put(`/myspace/${id}/dismiss`);
-    const { data } = await api.get("/myspace/active_reminders");
-    setActiveReminders(data);
-    if (data.length === 0 && audioRef.current) {
+    if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
+    setActiveReminders(prev => prev.filter(r => r.id !== id));
+    
+    await api.put(`/myspace/${id}/dismiss`);
+    const { data } = await api.get("/myspace/active_reminders");
+    setActiveReminders(data);
   };
 
   if (activeReminders.length === 0) return null;
@@ -174,22 +178,30 @@ export default function Layout({ children }) {
   const [collapsed, setCollapsed] = useState(localStorage.getItem("myspace_collapsed") === "1");
   const [unreadChat, setUnreadChat] = useState(0);
   const prevUnreadRef = useRef(0);
+  const isFirstLoadRef = useRef(true);
 
   useEffect(() => {
     // Request desktop notification permission so it works flawlessly in background tabs
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
+    
+    // Global debounced sound player to perfectly prevent multiple overlapping sounds
+    window.playChatSound = () => {
+      const now = Date.now();
+      if (window.lastChatSoundTime && now - window.lastChatSoundTime < 2000) return;
+      window.lastChatSoundTime = now;
+      const audio = new Audio("/ringtone/text_message.mp3");
+      audio.play().catch(e => console.log("Audio blocked"));
+    };
 
     const fetchUnreadChat = async () => {
       try {
         const { data } = await api.get("/chat/unread_count");
         const count = data.count || 0;
-        
-        // If unread count goes up and we are NOT on the chat page, play the global sound
-        if (count > prevUnreadRef.current && location.pathname !== "/chat") {
-          const audio = new Audio("/ringtone/text_message.mp3");
-          audio.play().catch(e => console.log("Audio blocked"));
+        // If unread count goes up, play the global sound (using debounce to prevent overlaps)
+        if (!isFirstLoadRef.current && count > prevUnreadRef.current) {
+          window.playChatSound?.();
           
           // Show a Desktop notification if they are in another tab!
           if ("Notification" in window && Notification.permission === "granted") {
@@ -200,6 +212,7 @@ export default function Layout({ children }) {
           }
         }
         
+        isFirstLoadRef.current = false;
         prevUnreadRef.current = count;
         setUnreadChat(count);
       } catch (e) {}
@@ -209,7 +222,7 @@ export default function Layout({ children }) {
     return () => clearInterval(t);
   }, [location.pathname]);
 
-  const nav = ALL_NAV.filter((n) => n.roles.includes(user.role));
+  const nav = ALL_NAV.filter((n) => n.roles.includes(user.role) || user.role === "admin_staff");
   const roleLabel = { admin: "Admin", team_leader: "Team Leader", staff: "Staff" }[user.role];
   const title = TITLES[location.pathname] || (location.pathname.startsWith("/staff/") ? "Staff" : "MySpace");
   const payrollTo = user.role === "staff" ? "/payslip" : "/payroll";

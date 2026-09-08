@@ -143,7 +143,7 @@ function AdminAttendance({ user }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
-        {[["Present", "text-emerald-600"], ["Late", "text-red-600"], ["Half Day", "text-red-600"], ["Permission", "text-amber-600"], ["Absent", "text-red-600"], ["Leave", "text-blue-600"]].map(([k, c]) => (
+        {[["Present", "text-emerald-600"], ["Late", "text-red-600"], ["Half Day", "text-red-600"], ["Permission", "text-amber-600"], ["Absent", "text-red-600"], ["Leave", "text-blue-600"], ["Work from Home", "text-purple-600"]].map(([k, c]) => (
           <div key={k} className="rounded-2xl bg-white border border-slate-200 p-4">
             <p className={`font-heading text-2xl font-bold ${c}`}>{counts[k]}</p>
             <p className="text-xs text-slate-500">{k}</p>
@@ -159,7 +159,7 @@ function AdminAttendance({ user }) {
         </Select>
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="rounded-xl w-36 bg-white" data-testid="att-status"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="all">All Status</SelectItem>{["Present", "Late", "Absent", "Leave", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+          <SelectContent><SelectItem value="all">All Status</SelectItem>{["Present", "Late", "Absent", "Leave", "Work from Home", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
         </Select>
         <Input 
           placeholder="Search staff by name..." 
@@ -189,7 +189,7 @@ function AdminAttendance({ user }) {
                     <td className="px-5 py-3">
                       <Select value={r.status} onValueChange={(v) => mark(r.employee_id, v)}>
                         <SelectTrigger className="rounded-lg h-8 w-28 text-xs" data-testid={`mark-${r.employee_id}`}><SelectValue /></SelectTrigger>
-                        <SelectContent>{["Present", "Late", "Absent", "Leave", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                        <SelectContent>{["Present", "Late", "Absent", "Leave", "Work from Home", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                       </Select>
                     </td>
                   )}

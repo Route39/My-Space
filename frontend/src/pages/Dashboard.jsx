@@ -61,7 +61,13 @@ export default function Dashboard() {
         <AnnouncementsSection announcements={announcements} isAdmin={isAdmin} reload={load} />
       </div>
 
-      {isAdmin ? <AdminHome data={data} today={today} shift={shift} navigate={navigate} /> : <StaffHome data={data} today={today} shift={shift} reload={load} navigate={navigate} />}
+      {user.role === "admin_staff" ? (
+        <div className="space-y-6">
+          <StaffHome data={data} today={today} shift={shift} reload={load} navigate={navigate} />
+          <hr className="border-slate-200 border-2 rounded-xl my-8" />
+          <AdminHome data={data} today={today} shift={shift} navigate={navigate} />
+        </div>
+      ) : isAdmin ? <AdminHome data={data} today={today} shift={shift} navigate={navigate} /> : <StaffHome data={data} today={today} shift={shift} reload={load} navigate={navigate} />}
     </div>
   );
 }
@@ -169,7 +175,7 @@ function StaffHome({ data, today, shift, reload, navigate }) {
   return (
     <div className="grid lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-6 rise" style={{ animationDelay: "60ms" }}>
-        <CheckInCard today={today} shift={shift} onChange={reload} />
+        <CheckInCard today={today} shift={shift} onChange={reload} isOnLeaveToday={data.is_on_leave_today} />
         {data.latest_task && (
           <div className="rounded-2xl bg-white border border-slate-200 p-5 card-hover cursor-pointer" data-testid="latest-task-card" onClick={() => navigate("/tasks")}>
             <p className="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wide">Latest Task</p>

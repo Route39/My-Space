@@ -19,7 +19,7 @@ function shiftHours(shift) {
   return Math.max(1, (eh * 60 + em - (sh * 60 + sm)) / 60);
 }
 
-export default function CheckInCard({ today, shift, onChange }) {
+export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) {
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
@@ -102,7 +102,11 @@ export default function CheckInCard({ today, shift, onChange }) {
       </div>
 
       <div className="mt-5 relative">
-        {done ? (
+        {isOnLeaveToday ? (
+          <div className="w-full h-13 py-3.5 rounded-2xl bg-amber-500/15 text-amber-500 font-heading font-semibold flex items-center justify-center gap-2">
+             You are on leave today
+          </div>
+        ) : done ? (
           <div className="w-full h-13 py-3.5 rounded-2xl bg-emerald-500/15 text-emerald-300 font-heading font-semibold flex items-center justify-center gap-2">
             <CheckCircle2 className="w-5 h-5" /> Attendance completed
           </div>

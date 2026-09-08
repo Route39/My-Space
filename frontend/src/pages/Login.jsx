@@ -63,21 +63,23 @@ export default function Login() {
           <h2 className="font-heading text-2xl font-bold text-slate-900">Welcome back</h2>
           <p className="text-slate-500 text-sm mt-1 mb-6">{tenant ? `Sign in to ${brandName}.` : "Sign in to continue to your workspace."}</p>
 
-          <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-4" onKeyDown={(e) => { if (e.key === 'Enter') submit(e); }}>
+            <input type="password" name="fakepasswordremembered" style={{ display: 'none' }} />
+            
             <div>
               <Label htmlFor="username" className="text-slate-700">Username / Phone</Label>
-              <Input id="username" data-testid="login-email" type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter your username or phone" className="mt-1.5 rounded-xl h-11" required />
+              <Input id={`usr_${Math.random()}`} name={`usr_${Math.random()}`} data-testid="login-email" type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter your username or phone" className="mt-1.5 rounded-xl h-11" autoComplete="off" readOnly onFocus={(e) => e.target.removeAttribute('readonly')} required />
             </div>
             <div>
               <Label htmlFor="password" className="text-slate-700">Password</Label>
               <div className="relative mt-1.5">
-                <Input id="password" data-testid="login-password" type={show ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="rounded-xl h-11 pr-10" required />
+                <Input id={`pwd_${Math.random()}`} name={`pwd_${Math.random()}`} data-testid="login-password" type="text" style={{ WebkitTextSecurity: show ? 'none' : 'disc' }} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="rounded-xl h-11 pr-10" autoComplete="off" readOnly onFocus={(e) => e.target.removeAttribute('readonly')} required />
                 <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
               </div>
             </div>
             {error && <p data-testid="login-error" className="text-sm text-red-600">{error}</p>}
-            <Button type="submit" data-testid="login-submit" disabled={busy} style={{ backgroundColor: accent }} className="w-full h-11 rounded-xl hover:opacity-90 font-medium text-white">{busy ? "Signing in…" : "Sign in"}</Button>
-          </form>
+            <Button onClick={submit} data-testid="login-submit" disabled={busy} style={{ backgroundColor: accent }} className="w-full h-11 rounded-xl hover:opacity-90 font-medium text-white">{busy ? "Signing in…" : "Sign in"}</Button>
+          </div>
 
         </div>
       </div>

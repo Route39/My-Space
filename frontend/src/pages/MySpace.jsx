@@ -42,7 +42,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const blank = (type) => ({
   type, title: "", content: "", visibility: "private", status: "new", pinned: false,
   reminder_date: new Date().toISOString().slice(0, 10), reminder_time: "09:00", repeat: "none",
-  checklist: type === "checklist" ? [{ id: uid(), text: "", done: false }] : [],
+  checklist: type === "checklist" ? [{ id: uid(), text: "", done: false, reason: "" }] : [],
   table_data: type === "table" ? { columns: [{ key: uid(), name: "Name", type: "text" }, { key: uid(), name: "Amount", type: "number" }], rows: [] } : { columns: [], rows: [] },
   attachments: [],
 });
@@ -357,17 +357,29 @@ function ChecklistEditor({ value, onChange }) {
   return (
     <div>
       {items.length > 0 && <div className="mb-3"><p className="text-xs text-slate-400 mb-1">{done}/{items.length} completed</p><MiniProgress value={done} max={items.length} /></div>}
-      <div className="space-y-1.5">
+      <div className="space-y-3">
         {items.map((it, i) => (
-          <div key={it.id} className="flex items-center gap-2 group">
-            <div className="flex flex-col text-slate-300"><button type="button" onClick={() => move(i, -1)} className="hover:text-slate-500"><GripVertical className="w-4 h-4" /></button></div>
-            <input type="checkbox" checked={it.done} onChange={(e) => upd(i, { done: e.target.checked })} data-testid={`cl-check-${i}`} className="w-4 h-4 accent-emerald-600" />
-            <input value={it.text} placeholder="List item" onChange={(e) => upd(i, { text: e.target.value })} className={`flex-1 text-sm bg-transparent focus:outline-none border-b border-transparent focus:border-slate-200 py-1 ${it.done ? "line-through text-slate-400" : "text-slate-700"}`} />
-            <button type="button" onClick={() => onChange(items.filter((_, x) => x !== i))} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><X className="w-4 h-4" /></button>
+          <div key={it.id} className="flex flex-col gap-1.5 group bg-slate-50 border border-transparent hover:border-slate-200 rounded-lg p-2 transition-colors">
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col text-slate-300">
+                <button type="button" onClick={() => move(i, -1)} className="hover:text-slate-500"><GripVertical className="w-4 h-4" /></button>
+              </div>
+              <input type="checkbox" checked={it.done} onChange={(e) => upd(i, { done: e.target.checked })} data-testid={`cl-check-${i}`} className="w-4 h-4 accent-emerald-600" />
+              <input value={it.text} placeholder="List item" onChange={(e) => upd(i, { text: e.target.value })} className={`flex-1 text-sm bg-transparent focus:outline-none border-b border-transparent focus:border-slate-200 py-1 ${it.done ? "line-through text-slate-400" : "text-slate-700"}`} />
+              <button type="button" onClick={() => onChange(items.filter((_, x) => x !== i))} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="pl-6 flex items-center pr-6">
+              <input 
+                value={it.reason || ""} 
+                placeholder="Reason (Optional)" 
+                onChange={(e) => upd(i, { reason: e.target.value })} 
+                className="w-full text-[11px] text-slate-500 bg-white border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-emerald-400 transition-colors" 
+              />
+            </div>
           </div>
         ))}
       </div>
-      <button type="button" onClick={() => onChange([...items, { id: uid(), text: "", done: false }])} data-testid="cl-add" className="text-sm text-emerald-600 font-medium mt-2">+ Add item</button>
+      <button type="button" onClick={() => onChange([...items, { id: uid(), text: "", done: false, reason: "" }])} data-testid="cl-add" className="text-sm text-emerald-600 font-medium mt-3">+ Add item</button>
     </div>
   );
 }

@@ -146,7 +146,12 @@ export default function EmployeeProfile() {
               <div><Label>Role</Label>
                 <Select value={form.role || "staff"} onValueChange={(v) => setForm({ ...form, role: v })}>
                   <SelectTrigger className="rounded-xl mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="staff">Staff</SelectItem><SelectItem value="team_leader">Team Leader</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent>
+                  <SelectContent>
+                    <SelectItem value="staff">Staff</SelectItem>
+                    <SelectItem value="team_leader">Team Leader</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="admin_staff">Admin + Staff</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
               <div><Label>Work Mode</Label>
