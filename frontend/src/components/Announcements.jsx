@@ -59,6 +59,11 @@ export default function AnnouncementsSection({ announcements = [], isAdmin, relo
                 </span>
                 <span className="text-xs text-slate-400">{timeAgo(ann.created_at)}</span>
               </div>
+              {ann.expires_at && (
+                <div className="mb-2 text-[11px] font-medium text-emerald-600/80 bg-emerald-50 w-fit px-2 py-0.5 rounded-md">
+                  Expires: {new Date(ann.expires_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                </div>
+              )}
               <h3 className="font-heading font-semibold text-slate-900 text-lg leading-tight mb-2">{ann.title}</h3>
               <p className="text-sm text-slate-600 mb-4 whitespace-pre-wrap flex-1">{ann.message}</p>
 
@@ -98,7 +103,7 @@ export default function AnnouncementsSection({ announcements = [], isAdmin, relo
 
 function PostAnnouncementModal({ onClose, onSuccess }) {
   const [busy, setBusy] = useState(false);
-  const [data, setData] = useState({ title: "", type: "General Update", message: "", link_url: "", image_data: "" });
+  const [data, setData] = useState({ title: "", type: "General Update", message: "", link_url: "", image_data: "", duration_days: 2, expiry_date: "", expiry_time: "" });
   const fileRef = useRef(null);
 
   const handleImage = (e) => {
@@ -156,6 +161,32 @@ function PostAnnouncementModal({ onClose, onSuccess }) {
               <label className="block text-sm font-medium text-slate-700 mb-2">Message</label>
               <textarea required rows={4} value={data.message} onChange={(e) => setData({ ...data, message: e.target.value })}
                 className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 outline-none focus:border-emerald-500 transition-all text-sm resize-none" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Exact Expiry Date (Optional)</label>
+                <input type="date" value={data.expiry_date} onChange={(e) => setData({ ...data, expiry_date: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 outline-none focus:border-emerald-500 transition-all text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Exact Expiry Time (Optional)</label>
+                <input type="time" value={data.expiry_time} onChange={(e) => setData({ ...data, expiry_time: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 outline-none focus:border-emerald-500 transition-all text-sm" />
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Or Expiry Duration (Default 2 Days)</label>
+              <select value={data.duration_days} onChange={(e) => setData({ ...data, duration_days: Number(e.target.value) })}
+                className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 outline-none focus:border-emerald-500 transition-all text-sm appearance-none">
+                <option value={1}>1 Day</option>
+                <option value={2}>2 Days</option>
+                <option value={3}>3 Days</option>
+                <option value={7}>1 Week</option>
+                <option value={14}>2 Weeks</option>
+                <option value={30}>1 Month</option>
+              </select>
             </div>
 
             <div>

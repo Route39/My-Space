@@ -22,7 +22,7 @@ export default function ChatPage() {
   const [editGroupId, setEditGroupId] = useState(null);
 
   const messagesEndRef = useRef(null);
-  const lastMsgIdsRef = useRef({});
+  const lastMsgTimesRef = useRef({});
   const activeChatRef = useRef(activeChat);
 
   useEffect(() => {
@@ -42,14 +42,15 @@ export default function ChatPage() {
 
       if (data.length > 0) {
         const lastMsg = data[data.length - 1];
-        const knownLastId = lastMsgIdsRef.current[currentChat];
+        const knownLastTime = lastMsgTimesRef.current[currentChat];
+        const newTime = new Date(lastMsg.created_at).getTime();
 
-        if (knownLastId && knownLastId !== lastMsg.id) {
+        if (knownLastTime && newTime > knownLastTime) {
           if (lastMsg.sender_id !== user.id) {
             window.playChatSound?.();
           }
         }
-        lastMsgIdsRef.current[currentChat] = lastMsg.id;
+        lastMsgTimesRef.current[currentChat] = newTime;
       }
     } catch (err) {
       console.error(err);

@@ -174,6 +174,17 @@ class AnnouncementIn(BaseModel):
     message: str
     link_url: Optional[str] = None
     image_data: Optional[str] = None
+    duration_days: int = 2
+    expiry_date: Optional[str] = None
+    expiry_time: Optional[str] = None
+
+class NoticeIn(BaseModel):
+    message: str
+    duration_hours: int = 24
+    from_date: Optional[str] = None
+    to_date: Optional[str] = None
+    from_time: Optional[str] = None
+    to_time: Optional[str] = None
 
 
 
@@ -1620,11 +1631,31 @@ async def myspace_get_file(fid: str, user: dict = Depends(get_current_user)):
 # ---------------- announcements ----------------
 @api.get("/announcements")
 async def get_announcements(user: dict = Depends(get_current_user)):
+    now = now_ist()
     items = await db.announcements.find({"org_id": user["org_id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
-    return items
+    
+    active = []
+    for item in items:
+        if item.get("expires_at") and datetime.fromisoformat(item["expires_at"]).replace(tzinfo=IST) <= now:
+            await db.announcements.delete_one({"id": item["id"]})
+        else:
+            active.append(item)
+            
+    return active
 
 @api.post("/announcements")
 async def create_announcement(body: AnnouncementIn, user: dict = Depends(require_roles("admin", "team_leader"))):
+    now = now_ist()
+    expires_at = now + timedelta(days=body.duration_days)
+    if body.expiry_date:
+        try:
+            if body.expiry_time:
+                expires_at = datetime.fromisoformat(f"{body.expiry_date}T{body.expiry_time}").replace(tzinfo=IST)
+            else:
+                expires_at = datetime.fromisoformat(f"{body.expiry_date}T23:59:59").replace(tzinfo=IST)
+        except:
+            pass
+            
     doc = {
         "id": uid(),
         "org_id": user["org_id"],
@@ -1633,7 +1664,8 @@ async def create_announcement(body: AnnouncementIn, user: dict = Depends(require
         "message": body.message,
         "link_url": body.link_url,
         "image_data": body.image_data,
-        "created_at": now_ist().isoformat(),
+        "created_at": now.isoformat(),
+        "expires_at": expires_at.isoformat(),
         "created_by": user["name"]
     }
     await db.announcements.insert_one(doc)
@@ -1654,6 +1686,70 @@ async def delete_announcement(ann_id: str, user: dict = Depends(require_roles("a
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
+
+# ---------------- notices (admin popup) ----------------
+
+@api.post("/notices")
+async def create_notice(body: NoticeIn, user: dict = Depends(require_roles("admin"))):
+    now = now_ist()
+    expires_at = now + timedelta(hours=body.duration_hours)
+    doc = {
+        "id": uid(),
+        "org_id": user["org_id"],
+        "message": body.message,
+        "duration_hours": body.duration_hours,
+        "from_date": body.from_date,
+        "to_date": body.to_date,
+        "from_time": body.from_time,
+        "to_time": body.to_time,
+        "created_at": now.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "created_by": user["name"]
+    }
+    await db.notices.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/notices/active")
+async def get_active_notices(user: dict = Depends(get_current_user)):
+    now = now_ist()
+    notices = await db.notices.find(
+        {"org_id": user["org_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    
+    active = []
+    for n in notices:
+        if n.get("expires_at") and datetime.fromisoformat(n["expires_at"]).replace(tzinfo=IST) <= now:
+            await db.notices.delete_one({"id": n["id"]})
+        else:
+            active.append(n)
+            
+    return active
+
+@api.get("/notices")
+async def list_all_notices(user: dict = Depends(require_roles("admin"))):
+    now = now_ist()
+    notices = await db.notices.find(
+        {"org_id": user["org_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    active = []
+    for n in notices:
+        if n.get("expires_at") and datetime.fromisoformat(n["expires_at"]).replace(tzinfo=IST) <= now:
+            await db.notices.delete_one({"id": n["id"]})
+        else:
+            active.append(n)
+            
+    return active
+
+@api.delete("/notices/{notice_id}")
+async def delete_notice(notice_id: str, user: dict = Depends(require_roles("admin"))):
+    res = await db.notices.delete_one({"id": notice_id, "org_id": user["org_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
 
 
 # ---------------- chat ----------------
@@ -1820,7 +1916,9 @@ async def get_unread_chat_count(user: dict = Depends(get_current_user)):
         ]
     }
     count = await db.chats.count_documents(query)
-    return {"count": count}
+    latest_msg = await db.chats.find_one(query, sort=[("created_at", -1)])
+    latest_time = latest_msg["created_at"] if latest_msg else None
+    return {"count": count, "latest_time": latest_time}
 
 @api.put("/chat/read/{recipient_id}")
 async def mark_chat_read(recipient_id: str, user: dict = Depends(get_current_user)):

@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   Users, Clock, KanbanSquare, Palmtree, Wallet, Settings, Bell, LogOut,
-  Home, User, PanelLeftClose, PanelLeft, NotebookPen, MessageCircle
+  Home, User, PanelLeftClose, PanelLeft, NotebookPen, MessageCircle, X
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
@@ -170,6 +170,115 @@ function ReminderDaemon() {
     </div>
   );
 }
+function formatTime12h(time24) {
+  if (!time24) return "";
+  const [h, m] = time24.split(":");
+  let hours = parseInt(h, 10);
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${hours}:${m} ${ampm}`;
+}
+
+function NoticeDaemon() {
+  const { user } = useAuth();
+  const [notices, setNotices] = useState([]);
+  const [unseenNotices, setUnseenNotices] = useState([]);
+
+  useEffect(() => {
+    if (user?.role === "admin") return;
+    const load = async () => {
+      try {
+        const { data } = await api.get("/notices/active");
+        setNotices(data);
+        
+        let seen = [];
+        try { seen = JSON.parse(localStorage.getItem("seen_notices") || "[]"); } catch(e){}
+        
+        const unseen = data.filter(n => !seen.includes(n.id));
+        setUnseenNotices(unseen);
+      } catch (e) {}
+    };
+    load();
+    const t = setInterval(load, 30000); // Check every 30s for brand new notices
+    return () => clearInterval(t);
+  }, [user?.role]);
+
+  const handleDismiss = () => {
+    let seen = [];
+    try { seen = JSON.parse(localStorage.getItem("seen_notices") || "[]"); } catch(e){}
+    const newSeen = [...new Set([...seen, ...unseenNotices.map(n => n.id)])];
+    localStorage.setItem("seen_notices", JSON.stringify(newSeen));
+    setUnseenNotices([]);
+  };
+
+  if (user?.role === "admin" || unseenNotices.length === 0) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" style={{background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(8px)'}}>
+      <div className="relative w-full max-w-lg animate-in zoom-in-95 duration-300">
+        {/* Close button */}
+        <button
+          onClick={handleDismiss}
+          className="absolute -top-3 -right-3 z-10 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:scale-110 transition-all"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="rounded-3xl overflow-hidden shadow-2xl" style={{background: 'linear-gradient(135deg, #064e3b 0%, #047857 30%, #10b981 100%)'}}>
+          {/* Header with Route 39 branding */}
+          <div className="flex flex-col items-center pt-8 pb-4 px-6">
+            <div className="w-20 h-20 rounded-2xl bg-white/20 backdrop-blur-xl flex items-center justify-center shadow-lg mb-4 ring-4 ring-white/10 p-3">
+              <img src="/favicon.svg" alt="Route 39" className="w-full h-full object-contain drop-shadow-md" />
+            </div>
+            <h2 className="text-white font-heading text-2xl font-bold tracking-tight">Route 39</h2>
+            <p className="text-emerald-200 text-sm mt-1 font-medium">Important Notice</p>
+          </div>
+
+          {/* Divider sparkle */}
+          <div className="flex items-center px-5 sm:px-8 gap-3">
+            <div className="flex-1 h-px bg-white/20" />
+            <div className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            <div className="flex-1 h-px bg-white/20" />
+          </div>
+
+          {/* Message area */}
+          <div className="px-5 sm:px-8 py-5 sm:py-6 max-h-[50vh] overflow-y-auto custom-scrollbar">
+            {unseenNotices.map((n) => (
+              <div key={n.id} className="bg-white/15 backdrop-blur-sm rounded-2xl p-5 mb-3 last:mb-0 border border-white/10">
+                <p className="text-white text-base leading-relaxed whitespace-pre-wrap font-medium">{n.message}</p>
+                {(n.from_date || n.to_date || n.from_time || n.to_time) && (
+                  <div className="mt-4 pt-3 border-t border-white/20 flex flex-col gap-1">
+                    {(n.from_date || n.to_date) && (
+                      <p className="text-emerald-100 text-sm font-medium">📅 Date: <span className="text-white">
+                        {[n.from_date, n.to_date].filter(Boolean).join(" to ")}
+                      </span></p>
+                    )}
+                    {(n.from_time || n.to_time) && (
+                      <p className="text-emerald-100 text-sm font-medium">🕒 Time: <span className="text-white">
+                        {[n.from_time ? formatTime12h(n.from_time) : null, n.to_time ? formatTime12h(n.to_time) : null].filter(Boolean).join(" to ")}
+                      </span></p>
+                    )}
+                  </div>
+                )}
+                <p className="text-emerald-200/70 text-xs mt-3">— {n.created_by} • Posted {new Date(n.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 sm:px-8 pb-5 sm:pb-6">
+            <button
+              onClick={handleDismiss}
+              className="w-full py-3.5 rounded-2xl bg-white text-emerald-800 font-heading font-bold text-sm hover:bg-emerald-50 transition-all shadow-lg active:scale-[0.98]"
+            >
+              Got it, Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Layout({ children }) {
   const { user, employee, logout } = useAuth();
@@ -177,8 +286,9 @@ export default function Layout({ children }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(localStorage.getItem("myspace_collapsed") === "1");
   const [unreadChat, setUnreadChat] = useState(0);
-  const prevUnreadRef = useRef(0);
   const isFirstLoadRef = useRef(true);
+  const prevUnreadTimeRef = useRef(0);
+  const soundDebounceRef = useRef(false);
 
   useEffect(() => {
     // Request desktop notification permission so it works flawlessly in background tabs
@@ -199,8 +309,10 @@ export default function Layout({ children }) {
       try {
         const { data } = await api.get("/chat/unread_count");
         const count = data.count || 0;
-        // If unread count goes up, play the global sound (using debounce to prevent overlaps)
-        if (!isFirstLoadRef.current && count > prevUnreadRef.current) {
+        const newMsgTime = data.latest_time ? new Date(data.latest_time).getTime() : 0;
+        
+        // If there's a genuinely newer message, play the global sound
+        if (!isFirstLoadRef.current && newMsgTime > prevUnreadTimeRef.current) {
           window.playChatSound?.();
           
           // Show a Desktop notification if they are in another tab!
@@ -213,12 +325,12 @@ export default function Layout({ children }) {
         }
         
         isFirstLoadRef.current = false;
-        prevUnreadRef.current = count;
+        prevUnreadTimeRef.current = newMsgTime;
         setUnreadChat(count);
       } catch (e) {}
     };
     fetchUnreadChat();
-    const t = setInterval(fetchUnreadChat, 10000);
+    const t = setInterval(fetchUnreadChat, 3000); // Poll every 3 seconds for exact instantaneous sound
     return () => clearInterval(t);
   }, [location.pathname]);
 
@@ -327,6 +439,7 @@ export default function Layout({ children }) {
         </div>
       </nav>
       <ReminderDaemon />
+      <NoticeDaemon />
     </div>
   );
 }

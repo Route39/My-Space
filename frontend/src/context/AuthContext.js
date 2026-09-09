@@ -33,6 +33,7 @@ export function AuthProvider({ children }) {
   }, [loadMe]);
 
   const login = async (username, password) => {
+    localStorage.removeItem("seen_notices");
     const slug = getTenantSlug();
     const { data } = await api.post("/auth/login", { username, password, tenant_slug: slug || undefined });
     localStorage.setItem("attendy_token", data.token);
@@ -52,6 +53,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem("attendy_token");
+    localStorage.removeItem("seen_notices");
     setUser(null);
     setEmployee(null);
   };
