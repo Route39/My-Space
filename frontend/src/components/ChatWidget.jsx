@@ -173,7 +173,7 @@ export default function ChatWidget() {
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 relative" onClick={() => setActiveMenu(null)}>
             {messages.map((m) => {
               const isMe = m.sender_id === user.id;
-              const canDeleteEveryone = isMe || user.role === "admin";
+              const canDeleteEveryone = isMe || user.role === "admin" || user.role === "admin_staff";
               
               return (
                 <div key={m.id} className={`flex flex-col relative group ${isMe ? 'items-end' : 'items-start'}`}>

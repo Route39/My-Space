@@ -56,7 +56,7 @@ export default function Dashboard() {
       </div>
     );
 
-  const isAdmin = data.role === "admin" || data.role === "team_leader";
+  const isAdmin = data.role === "admin" || data.role === "team_leader" || data.role === "admin_staff";
 
   return (
     <div className="space-y-6">

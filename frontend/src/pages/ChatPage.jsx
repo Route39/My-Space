@@ -297,7 +297,7 @@ export default function ChatPage() {
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-slate-800 truncate">{staff.name}</h3>
                   <p className="text-xs text-slate-400 truncate">
-                    {staff.role === "admin" ? "Admin" : (staff.designation || "Staff")}
+                    {(staff.role === "admin" || staff.role === "admin_staff") ? "Admin" : (staff.designation || "Staff")}
                   </p>
                 </div>
               </div>
@@ -328,7 +328,7 @@ export default function ChatPage() {
                 )}
               </h3>
               <p className="text-xs text-slate-500">
-                {activeGroup ? `${activeGroup.members.length} members` : (activeUser?.role === "admin" ? "Admin" : (activeUser?.designation || "Staff"))}
+                {activeGroup ? `${activeGroup.members.length} members` : ((activeUser?.role === "admin" || activeUser?.role === "admin_staff") ? "Admin" : (activeUser?.designation || "Staff"))}
               </p>
             </div>
           </div>
@@ -371,7 +371,7 @@ export default function ChatPage() {
                         <button onClick={() => deleteMessage(msg.id, false)} className="w-full px-4 py-2.5 text-left text-xs font-medium hover:bg-slate-50 flex items-center gap-2">
                           <Trash2 size={14} className="text-slate-400" /> Delete for me
                         </button>
-                        {(isMe || user.role === "admin") && (
+                        {(isMe || user.role === "admin" || user.role === "admin_staff") && (
                           <button onClick={() => deleteMessage(msg.id, true)} className="w-full px-4 py-2.5 text-left text-xs font-medium hover:bg-red-50 text-red-600 flex items-center gap-2 border-t border-slate-50">
                             <Trash2 size={14} /> Delete for everyone
                           </button>

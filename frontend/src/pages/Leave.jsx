@@ -23,8 +23,18 @@ const TYPES = ["Casual Leave", "Sick Leave", "Work from Home", "Unpaid Leave", "
 
 export default function Leave() {
   const { user } = useAuth();
-  const isManager = user.role === "admin" || user.role === "team_leader";
-  return isManager ? <ManagerLeave /> : <StaffLeave />;
+  const isManager = user.role === "admin" || user.role === "team_leader" || user.role === "admin_staff";
+  if (isManager) {
+    return (
+      <div className="space-y-10">
+        <StaffLeave />
+        <hr className="border-slate-200 border-2 rounded-xl" />
+        <ManagerLeave />
+      </div>
+    );
+  }
+
+  return <StaffLeave />;
 }
 
 function StaffLeave() {

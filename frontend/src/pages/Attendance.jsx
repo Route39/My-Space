@@ -14,7 +14,7 @@ import { timeStr, shortDate } from "@/lib/format";
 
 export default function Attendance() {
   const { user } = useAuth();
-  const isAdmin = user.role === "admin" || user.role === "team_leader";
+  const isAdmin = user.role === "admin" || user.role === "team_leader" || user.role === "admin_staff";
   return isAdmin ? <AdminAttendance user={user} /> : <StaffAttendance />;
 }
 
@@ -175,7 +175,7 @@ function AdminAttendance({ user }) {
             <thead><tr className="text-left text-slate-500 text-xs">
               <th className="font-medium px-5 py-3">Employee</th><th className="font-medium px-3 py-3">Check In</th>
               <th className="font-medium px-3 py-3">Check Out</th><th className="font-medium px-3 py-3">Hours</th>
-              <th className="font-medium px-3 py-3">Status</th>{user.role === "admin" && <th className="font-medium px-5 py-3">Mark</th>}
+              <th className="font-medium px-3 py-3">Status</th>{(user.role === "admin" || user.role === "admin_staff") && <th className="font-medium px-5 py-3">Mark</th>}
             </tr></thead>
             <tbody>
               {filteredRows.map((r) => (
@@ -185,7 +185,7 @@ function AdminAttendance({ user }) {
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}</td>
                   <td className="px-3 py-3 text-slate-600">{r.hours ? `${r.hours}h` : "—"}</td>
                   <td className="px-3 py-3"><StatusBadge status={r.status} /></td>
-                  {user.role === "admin" && (
+                  {(user.role === "admin" || user.role === "admin_staff") && (
                     <td className="px-5 py-3">
                       <Select value={r.status} onValueChange={(v) => mark(r.employee_id, v)}>
                         <SelectTrigger className="rounded-lg h-8 w-28 text-xs" data-testid={`mark-${r.employee_id}`}><SelectValue /></SelectTrigger>

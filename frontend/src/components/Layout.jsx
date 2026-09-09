@@ -185,7 +185,7 @@ function NoticeDaemon() {
   const [unseenNotices, setUnseenNotices] = useState([]);
 
   useEffect(() => {
-    if (user?.role === "admin") return;
+    if (user?.role === "admin" || user?.role === "admin_staff") return;
     const load = async () => {
       try {
         const { data } = await api.get("/notices/active");
@@ -211,7 +211,7 @@ function NoticeDaemon() {
     setUnseenNotices([]);
   };
 
-  if (user?.role === "admin" || unseenNotices.length === 0) return null;
+  if (user?.role === "admin" || user?.role === "admin_staff" || unseenNotices.length === 0) return null;
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" style={{background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(8px)'}}>
@@ -335,7 +335,7 @@ export default function Layout({ children }) {
   }, [location.pathname]);
 
   const nav = ALL_NAV.filter((n) => n.roles.includes(user.role) || user.role === "admin_staff");
-  const roleLabel = { admin: "Admin", team_leader: "Team Leader", staff: "Staff" }[user.role];
+  const roleLabel = { admin: "Admin", admin_staff: "Admin", team_leader: "Team Leader", staff: "Staff" }[user.role];
   const title = TITLES[location.pathname] || (location.pathname.startsWith("/staff/") ? "Staff" : "MySpace");
   const payrollTo = user.role === "staff" ? "/payslip" : "/payroll";
   const MOBILE_NAV = [

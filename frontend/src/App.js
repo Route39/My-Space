@@ -40,15 +40,15 @@ function AppRoutes() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/" element={<Protected><Dashboard /></Protected>} />
-        <Route path="/staff" element={<Protected roles={["admin", "team_leader"]}><Staff /></Protected>} />
-        <Route path="/staff/:id" element={<Protected roles={["admin", "team_leader"]}><EmployeeProfile /></Protected>} />
+        <Route path="/staff" element={<Protected roles={["admin", "team_leader", "admin_staff"]}><Staff /></Protected>} />
+        <Route path="/staff/:id" element={<Protected roles={["admin", "team_leader", "admin_staff"]}><EmployeeProfile /></Protected>} />
         <Route path="/attendance" element={<Protected><Attendance /></Protected>} />
         <Route path="/tasks" element={<Protected><Tasks /></Protected>} />
         <Route path="/myspace" element={<Protected><MySpace /></Protected>} />
         <Route path="/leave" element={<Protected><Leave /></Protected>} />
-        <Route path="/payroll" element={<Protected roles={["admin", "team_leader"]}><Payroll /></Protected>} />
+        <Route path="/payroll" element={<Protected roles={["admin", "team_leader", "admin_staff"]}><Payroll /></Protected>} />
         <Route path="/payslip" element={<Protected><Payslip /></Protected>} />
-        <Route path="/settings" element={<Protected roles={["admin"]}><Settings /></Protected>} />
+        <Route path="/settings" element={<Protected roles={["admin", "admin_staff"]}><Settings /></Protected>} />
         <Route path="/profile" element={<Protected><Profile /></Protected>} />
         <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />

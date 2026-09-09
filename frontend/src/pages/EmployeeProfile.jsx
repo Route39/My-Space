@@ -94,7 +94,7 @@ export default function EmployeeProfile() {
   };
 
   if (!emp) return <div className="h-64 flex items-center justify-center"><div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>;
-  const isAdmin = user.role === "admin";
+  const isAdmin = user.role === "admin" || user.role === "admin_staff";
   const canEdit = isAdmin || user.id === emp.user_id;
 
   return (

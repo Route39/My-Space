@@ -22,7 +22,7 @@ export default function LeaveApprovalPopup() {
     }
   };
 
-  const canApprove = user?.role === "admin" || user?.phone === "9626573939";
+  const canApprove = user?.role === "admin" || user?.role === "admin_staff" || user?.phone === "9626573939";
 
   useEffect(() => {
     if (!canApprove) return;

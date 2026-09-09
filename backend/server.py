@@ -962,7 +962,7 @@ async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
         tl_user = await db.users.find_one({"employee_id_ref": emp["team_leader_id"]})
         if tl_user:
             await create_notification(tl_user["id"], "leave", f"{emp['name']} applied for {body.leave_type}")
-    admins = await db.users.find({"org_id": user["org_id"], "role": "admin"}).to_list(20)
+    admins = await db.users.find({"org_id": user["org_id"], "role": {"$in": ["admin", "admin_staff"]}}).to_list(20)
     for a in admins:
         await create_notification(a["id"], "leave", f"{emp['name']} applied for {body.leave_type}")
     await log_activity(user["org_id"], f"{emp['name']} applied for leave")
@@ -981,7 +981,7 @@ async def my_leaves(user: dict = Depends(get_current_user)):
 
 
 def is_leave_admin(user: dict) -> bool:
-    return user["role"] == "admin" or user.get("phone") == "9626573939"
+    return user["role"] in ("admin", "admin_staff") or user.get("phone") == "9626573939"
 
 def require_leave_admin():
     async def dep(user: dict = Depends(get_current_user)):
@@ -1446,7 +1446,7 @@ async def can_view_item(item: dict, user: dict) -> bool:
     if vis == "company":
         return True
     if vis == "team":
-        if user["role"] == "admin":
+        if user["role"] in ("admin", "admin_staff"):
             return True
         return item.get("team_id") and item.get("team_id") == await my_team_id(user)
     return False
@@ -1520,7 +1520,7 @@ async def dismiss_reminder(item_id: str, user: dict = Depends(get_current_user))
 async def list_myspace(filter: str = "all", q: Optional[str] = None, status: Optional[str] = None, user: dict = Depends(get_current_user)):
     team = await my_team_id(user)
     conds = [{"owner_id": user["id"]}, {"visibility": "company"}]
-    if user["role"] == "admin":
+    if user["role"] in ("admin", "admin_staff"):
         conds.append({"visibility": "team"})
     elif team:
         conds.append({"visibility": "team", "team_id": team})
@@ -1955,7 +1955,7 @@ async def chat_contacts(user: dict = Depends(get_current_user)):
             
     # Also add admins that might not have an employee record (like the main Admin)
     for u in users:
-        if u["role"] == "admin" and not any(c.get("user_id") == u["id"] for c in contacts):
+        if u["role"] in ("admin", "admin_staff") and not any(c.get("user_id") == u["id"] for c in contacts):
             contacts.append({
                 "id": u["id"],
                 "user_id": u["id"],

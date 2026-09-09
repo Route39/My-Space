@@ -27,7 +27,7 @@ const COLUMNS = [
 
 export default function Tasks() {
   const { user } = useAuth();
-  const canCreate = user.role === "admin" || user.role === "team_leader";
+  const canCreate = user.role === "admin" || user.role === "team_leader" || user.role === "admin_staff";
   const [tasks, setTasks] = useState([]);
   const [emps, setEmps] = useState([]);
   const [active, setActive] = useState(null);
