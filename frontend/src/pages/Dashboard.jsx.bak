@@ -76,7 +76,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {user.role === "super_admin" ? <PlatformHome /> : user.role === "admin_staff" ? (
+      {user.role === "admin_staff" ? (
         <div className="space-y-6">
           <StaffHome data={data} today={today} shift={shift} reload={load} navigate={navigate} />
           <hr className="border-slate-200 border-2 rounded-xl my-8" />
@@ -441,24 +441,3 @@ const TaskLegend = ({ color, dot, label, v }) => (
   <div className="flex items-center gap-2"><span className={`w-2 h-2 rounded-full ${dot}`} /><span className="text-slate-500">{label}</span><span className={`font-bold ml-auto ${color}`}>{v}</span></div>
 );
 
-
-
-function PlatformHome() {
-  const [rows, setRows] = useState([]);
-  const load = () => api.get("/platform/companies").then((r) => setRows(r.data)).catch(() => setRows([]));
-  useEffect(() => { load(); }, []);
-  const toggle = async (c) => { await api.put(`/platform/companies/${c.id}/status`, { active: !(c.active ?? true) }); load(); };
-  return (
-    <div className="rounded-2xl bg-white border border-slate-200 p-5">
-      <p className="font-heading font-bold text-lg mb-4">Platform · Companies ({rows.length})</p>
-      <table className="w-full text-sm">
-        <thead><tr className="text-left text-slate-500 text-xs"><th className="py-2">Company</th><th>Slug</th><th>Employees</th><th>Users</th><th>Status</th></tr></thead>
-        <tbody>{rows.map((c) => (
-          <tr key={c.id} className="border-t border-slate-100">
-            <td className="py-2 font-medium">{c.name}</td><td>{c.slug}</td><td>{c.employee_count}</td><td>{c.user_count}</td>
-            <td><button onClick={() => toggle(c)} className={`text-xs rounded-lg px-2 py-1 ${(c.active ?? true) ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>{(c.active ?? true) ? "Active" : "Inactive"}</button></td>
-          </tr>))}</tbody>
-      </table>
-    </div>
-  );
-}

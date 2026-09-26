@@ -180,12 +180,12 @@ export default function EmployeeProfile() {
         </DialogContent>
       </Dialog>
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
-        <div className="h-24 sm:h-32 bg-gradient-to-r from-emerald-500 to-emerald-600" />
+        <div className="h-24 bg-gradient-to-r from-emerald-500 to-emerald-600" />
         <div className="px-6 pb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 -mt-10 sm:-mt-28 sm:mb-10">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 -mt-10 sm:-mt-20">
             <div className="ring-4 ring-white rounded-full w-fit"><Avatar src={emp.photo} name={emp.name} size={84} /></div>
             <div className="flex-1">
-              <div className="flex items-center gap-3 flex-wrap"><h1 className="font-heading text-2xl font-bold text-slate-900 sm:text-white">{emp.name}</h1><StatusBadge status={emp.status} /></div>
+              <div className="flex items-center gap-3 flex-wrap"><h1 className="font-heading text-2xl font-bold text-slate-900 sm:text-white sm:mt-3">{emp.name}</h1><StatusBadge status={emp.status} /></div>
               <p className="text-slate-500 sm:text-emerald-50">{emp.designation} · {emp.department} · {emp.employee_code}</p>
             </div>
           </div>

@@ -1,8 +1,6 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
-import JSZip from "jszip";
-import PayslipEdit from "@/pages/PayslipEdit";
-import { RefreshCw, Wallet, TrendingUp, Users, Download, CheckCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { RefreshCw, Wallet, TrendingUp, Users } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { Avatar } from "@/components/common";
@@ -34,31 +32,6 @@ export default function Payroll() {
 
   const total = rows.reduce((s, r) => s + r.net, 0);
   const paid = rows.filter((r) => r.status === "Paid").length;
-  const approved = rows.filter((r) => r.status === "Approved");
-  const drafts = rows.filter((r) => r.status === "Draft");
-  const [bulk, setBulk] = useState(null);
-  const zipRef = useRef(null);
-  const approveAll = async () => {
-    if (!drafts.length) return toast.info("No Draft payslips");
-    if (!window.confirm(`Approve ${drafts.length} Draft payslips?`)) return;
-    for (const r of drafts) await api.put(`/payroll/${r.id}/status`, { status: "Approved" });
-    toast.success(`${drafts.length} payslips approved`); load();
-  };
-  const downloadAll = () => {
-    if (!approved.length) return toast.info("No Approved payslips");
-    zipRef.current = new JSZip();
-    setBulk({ ids: approved.map((r) => r.id), i: 0 });
-  };
-  const onBulkPdf = async (blob, name) => {
-    zipRef.current.file(name, blob);
-    const next = bulk.i + 1;
-    if (next < bulk.ids.length) return setBulk({ ...bulk, i: next });
-    const out = await zipRef.current.generateAsync({ type: "blob" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(out); a.download = `${monthLabel}.zip`; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    toast.success(`Downloaded ${bulk.ids.length} payslips`); setBulk(null);
-  };
   const monthLabel = new Date(month + "-01").toLocaleDateString("en-IN", { timeZone: "UTC", month: "long", year: "numeric" });
 
   return (
@@ -67,13 +40,9 @@ export default function Payroll() {
         <div><p className="text-slate-500">{monthLabel} payroll run</p></div>
         <div className="flex gap-2">
           <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="payroll-month" className="rounded-xl w-40 bg-white" />
-          <Button onClick={approveAll} variant="outline" className="rounded-xl h-10"><CheckCheck className="w-4 h-4 mr-1" /> Approve All</Button>
-          <Button onClick={downloadAll} disabled={!!bulk} className="rounded-xl bg-slate-900 hover:bg-slate-800 h-10"><Download className="w-4 h-4 mr-1" /> {bulk ? `Preparing ${bulk.i + 1}/${bulk.ids.length}...` : `Download All (${approved.length})`}</Button>
           <Button onClick={generate} disabled={busy} data-testid="generate-payroll" className="rounded-xl bg-emerald-600 hover:bg-emerald-700 h-10"><RefreshCw className={`w-4 h-4 mr-1 ${busy ? "animate-spin" : ""}`} /> Generate</Button>
         </div>
       </div>
-
-      {bulk && <div style={{ position: "fixed", left: -10000, top: 0, width: 1000 }}><PayslipEdit key={bulk.ids[bulk.i]} pid={bulk.ids[bulk.i]} readOnly autoPdf onPdf={onBulkPdf} /></div>}
 
       <div className="grid sm:grid-cols-3 gap-4">
         <div className="sm:col-span-1 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 p-6 text-white">

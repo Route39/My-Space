@@ -20,14 +20,14 @@ const ALL_NAV = [
   { to: "/myspace", label: "My Space", icon: NotebookPen, roles: ["admin", "team_leader", "staff"] },
   { to: "/leave", label: "Leave", icon: Palmtree, roles: ["admin", "team_leader", "staff"] },
   { to: "/chat", label: "Chat", icon: MessageCircle, roles: ["admin", "team_leader", "staff"] },
-  { to: "/payroll", label: "Payroll", icon: Wallet, roles: ["admin", "team_leader"] },
+  { to: "/payroll", label: "Payslip", icon: Wallet, roles: ["admin", "team_leader"] },
   { to: "/payslip", label: "Payslip", icon: Wallet, roles: ["staff"] },
   { to: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
 
 const TITLES = {
   "/": "Dashboard", "/staff": "Staff", "/attendance": "Attendance", "/tasks": "Tasks",
-  "/leave": "Leave", "/chat": "Chat", "/payroll": "Payroll", "/payslip": "My Payslip", "/settings": "Settings", "/profile": "My Profile",
+  "/leave": "Leave", "/chat": "Chat", "/payroll": "Payslip", "/payslip": "My Payslip", "/settings": "Settings", "/profile": "My Profile",
 };
 
 function NotificationBell() {
