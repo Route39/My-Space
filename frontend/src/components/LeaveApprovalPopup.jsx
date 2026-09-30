@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useLocation } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
@@ -8,68 +9,101 @@ import { Avatar } from "@/components/common";
 import { dateStr } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 
+const MARGIN = 8;
 const BUBBLE = 56;
-const MARGIN = 12;
-const POS_KEY = "leave_bubble_pos";
 
-const clamp = (pos, w, h) => ({
-  x: Math.min(Math.max(MARGIN, pos.x), Math.max(MARGIN, window.innerWidth - w - MARGIN)),
-  y: Math.min(Math.max(MARGIN, pos.y), Math.max(MARGIN, window.innerHeight - h - MARGIN)),
-});
-
-const defaultPos = () => ({ x: window.innerWidth - BUBBLE - 20, y: window.innerHeight - BUBBLE - 90 });
-
-const loadPos = () => {
+const readPos = (key, fallback) => {
   try {
-    const p = JSON.parse(localStorage.getItem(POS_KEY));
-    if (p && typeof p.x === "number" && typeof p.y === "number") return clamp(p, BUBBLE, BUBBLE);
+    const p = JSON.parse(localStorage.getItem(key));
+    if (p && typeof p.x === "number" && typeof p.y === "number") return p;
   } catch (e) {}
-  return clamp(defaultPos(), BUBBLE, BUBBLE);
+  return fallback;
 };
+const savePos = (key, p) => { try { localStorage.setItem(key, JSON.stringify(p)); } catch (e) {} };
+
+function useDraggable(storageKey, fallback, ref) {
+  const [pos, setPos] = useState(() => readPos(storageKey, fallback()));
+  const drag = useRef(null);
+  const clamp = (p) => {
+    const w = ref.current ? ref.current.offsetWidth : BUBBLE;
+    const h = ref.current ? ref.current.offsetHeight : BUBBLE;
+    return {
+      x: Math.min(Math.max(MARGIN, p.x), Math.max(MARGIN, window.innerWidth - w - MARGIN)),
+      y: Math.min(Math.max(MARGIN, p.y), Math.max(MARGIN, window.innerHeight - h - MARGIN)),
+    };
+  };
+  useEffect(() => {
+    const onResize = () => setPos((p) => clamp(p));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlers = {
+    onPointerDown: (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.target.closest("[data-nodrag]")) return;
+      drag.current = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y, id: e.pointerId, moved: false };
+    },
+    onPointerMove: (e) => {
+      const d = drag.current;
+      if (!d) return;
+      const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+      if (!d.moved) {
+        if (Math.abs(dx) + Math.abs(dy) < 5) return;
+        d.moved = true;
+        e.currentTarget.setPointerCapture?.(d.id);
+      }
+      e.preventDefault();
+      setPos(clamp({ x: d.ox + dx, y: d.oy + dy }));
+    },
+    onPointerUp: (e) => {
+      const d = drag.current;
+      drag.current = null;
+      if (d?.moved) {
+        e.currentTarget.releasePointerCapture?.(d.id);
+        setPos((p) => { savePos(storageKey, p); return p; });
+      }
+      return d ? d.moved : false;
+    },
+    onPointerCancel: () => { drag.current = null; },
+  };
+  return { pos, setPos, clamp, handlers };
+}
 
 export default function LeaveApprovalPopup() {
   const { user } = useAuth();
+  const location = useLocation();
+  const isDashboard = location.pathname === "/";
   const [pending, setPending] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState(loadPos);
-  const [pulse, setPulse] = useState(false);
-  const prevCount = useRef(0);
-  const drag = useRef(null);
+  const [open, setOpen] = useState(isDashboard);
+  const panelRef = useRef(null);
+  const bubbleRef = useRef(null);
+  const panel = useDraggable("leave_popup_pos", () => ({ x: 20, y: 80 }), panelRef);
+  const bubble = useDraggable("leave_bubble_pos", () => ({ x: window.innerWidth - BUBBLE - 24, y: window.innerHeight - BUBBLE - 90 }), bubbleRef);
 
   const canApprove = user?.role === "admin" || user?.role === "admin_staff" || user?.phone === "9626573939";
 
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
       const { data } = await api.get("/leaves/pending");
       setPending(data);
-      if (data.length > prevCount.current) {
-        setPulse(true);
-        setTimeout(() => setPulse(false), 2500);
-      }
-      prevCount.current = data.length;
     } catch (e) {}
-  }, []);
+  };
 
   useEffect(() => {
     if (!canApprove) return;
     load();
     const int = setInterval(load, 15000);
     return () => clearInterval(int);
-  }, [canApprove, load]);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { setOpen(isDashboard); }, [isDashboard]);
 
   useEffect(() => {
-    const onResize = () => setPos((p) => clamp(p, BUBBLE, BUBBLE));
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    if (pending.length === 0) setOpen(false);
-  }, [pending.length]);
-
-  const savePos = (p) => {
-    try { localStorage.setItem(POS_KEY, JSON.stringify(p)); } catch (e) {}
-  };
+    if (!pending.length) return;
+    panel.setPos((p) => panel.clamp(p));
+    bubble.setPos((p) => bubble.clamp(p));
+  }, [pending.length, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (id, action) => {
     try {
@@ -81,75 +115,47 @@ export default function LeaveApprovalPopup() {
     }
   };
 
-  const onPointerDown = (e) => {
-    if (e.button !== undefined && e.button !== 0) return;
-    drag.current = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y, moved: false };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-
-  const onPointerMove = (e) => {
-    const d = drag.current;
-    if (!d) return;
-    const dx = e.clientX - d.sx;
-    const dy = e.clientY - d.sy;
-    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 6) return;
-    d.moved = true;
-    setPos(clamp({ x: d.ox + dx, y: d.oy + dy }, BUBBLE, BUBBLE));
-  };
-
-  const onPointerUp = (e) => {
-    const d = drag.current;
-    drag.current = null;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (!d) return;
-    if (d.moved) setPos((p) => { savePos(p); return p; });
-    else setOpen(true);
-  };
-
   if (!canApprove || pending.length === 0) return null;
 
   if (!open) {
     return createPortal(
-      <button
-        type="button"
+      <div
+        ref={bubbleRef}
+        role="button"
         aria-label={`Leave requests (${pending.length})`}
         data-testid="leave-bubble"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={() => { drag.current = null; }}
-        style={{ left: pos.x, top: pos.y, width: BUBBLE, height: BUBBLE, touchAction: "none" }}
-        className={`fixed z-[9999] rounded-full bg-emerald-600 text-white shadow-xl shadow-emerald-600/30 flex items-center justify-center cursor-grab active:cursor-grabbing select-none hover:bg-emerald-700 transition-colors ${pulse ? "animate-bounce" : ""}`}
+        {...bubble.handlers}
+        onPointerUp={(e) => { if (!bubble.handlers.onPointerUp(e)) setOpen(true); }}
+        style={{ left: bubble.pos.x, top: bubble.pos.y, width: BUBBLE, height: BUBBLE, touchAction: "none" }}
+        className="fixed z-[9999] rounded-full bg-emerald-600 text-white shadow-xl shadow-emerald-600/30 flex items-center justify-center cursor-grab active:cursor-grabbing select-none hover:bg-emerald-700 transition-colors"
       >
         <CalendarClock className="w-6 h-6 pointer-events-none" />
         <span className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center border-2 border-white pointer-events-none">
           {pending.length}
         </span>
-      </button>,
+      </div>,
       document.body
     );
   }
 
-  const panelW = Math.min(320, window.innerWidth - MARGIN * 2);
-  const panelH = Math.min(480, window.innerHeight - MARGIN * 2);
-  const panelPos = clamp({ x: pos.x + BUBBLE - panelW, y: pos.y + BUBBLE - panelH }, panelW, panelH);
-
   return createPortal(
     <div
-      data-testid="leave-panel"
-      className="fixed z-[9999] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200"
-      style={{ left: panelPos.x, top: panelPos.y, width: panelW, maxHeight: panelH }}
+      ref={panelRef}
+      {...panel.handlers}
+      className="fixed z-[9999] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden w-80 max-w-[calc(100vw-16px)] cursor-grab active:cursor-grabbing select-none animate-in fade-in slide-in-from-bottom-4 duration-300"
+      style={{ left: panel.pos.x, top: panel.pos.y, touchAction: "none" }}
     >
-      <div className="bg-slate-50 border-b border-slate-100 p-2 flex items-center justify-between select-none">
+      <div className="bg-slate-50 border-b border-slate-100 p-2 flex items-center justify-between">
         <div className="flex items-center text-slate-500 gap-1.5 px-1">
           <GripHorizontal className="w-4 h-4" />
           <span className="text-xs font-semibold uppercase tracking-wider">Leave Requests ({pending.length})</span>
         </div>
-        <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-200 hover:text-slate-800">
+        <button type="button" data-nodrag aria-label="Minimise" onClick={() => setOpen(false)}
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-200 hover:text-slate-800">
           <X className="w-4 h-4" />
         </button>
       </div>
-      <div className="overflow-y-auto p-3 space-y-3 snap-y snap-mandatory overscroll-contain">
+      <div className="max-h-96 overflow-y-auto p-3 space-y-3 snap-y snap-mandatory">
         {pending.map((l) => (
           <div key={l.id} className="snap-start bg-slate-50 rounded-xl p-3 border border-slate-100">
             <div className="flex items-center gap-2 mb-2">
@@ -167,7 +173,7 @@ export default function LeaveApprovalPopup() {
               </span>
             </p>
             {l.reason && <p className="text-xs text-slate-600 mb-3 italic">"{l.reason}"</p>}
-            <div className="flex gap-2">
+            <div className="flex gap-2" data-nodrag>
               <Button size="sm" onClick={() => act(l.id, "approve")} className="flex-1 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs">
                 <Check className="w-3.5 h-3.5 mr-1" /> Approve
               </Button>
