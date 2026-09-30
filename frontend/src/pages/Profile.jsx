@@ -12,7 +12,7 @@ import { toast } from "sonner";
 export default function Profile() {
   const { user, employee, logout, loadUser } = useAuth();
   const navigate = useNavigate();
-  const roleLabel = { admin: "Admin", admin_staff: "Admin", team_leader: "Team Leader", staff: "Staff" }[user.role];
+  const roleLabel = { admin: "Admin", admin_staff: "Admin + Staff", team_leader: "Team Leader", staff: "Staff" }[user.role];
   const [showEdit, setShowEdit] = useState(false);
 
   return (

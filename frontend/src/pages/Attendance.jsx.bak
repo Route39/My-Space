@@ -11,7 +11,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { timeStr, shortDate } from "@/lib/format";
-import AttendanceMonthDialog from "@/components/AttendanceMonthDialog";
 
 export default function Attendance() {
   const { user } = useAuth();
@@ -123,7 +122,6 @@ function AdminAttendance({ user }) {
   const [dept, setDept] = useState("all");
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
-  const [selEmp, setSelEmp] = useState(null);
 
   const load = async () => {
     const params = { date };
@@ -181,7 +179,7 @@ function AdminAttendance({ user }) {
             </tr></thead>
             <tbody>
               {filteredRows.map((r) => (
-                <tr key={r.employee_id} onClick={(ev) => { if (!ev.target.closest("button,input,select,[role=combobox],[role=option],[role=listbox]")) setSelEmp(r); }} className="cursor-pointer border-t border-slate-50 hover:bg-slate-50/80 transition-colors">
+                <tr key={r.employee_id} className="border-t border-slate-50 hover:bg-slate-50/80 transition-colors">
                   <td className="px-5 py-3"><div className="flex items-center gap-2.5"><Avatar src={r.photo} name={r.name} size={30} /><span className="font-medium text-slate-700">{r.name}</span></div></td>
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}</td>
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}</td>
@@ -201,7 +199,6 @@ function AdminAttendance({ user }) {
           </table>
         </div>
       </div>
-      <AttendanceMonthDialog employee={selEmp} onClose={() => setSelEmp(null)} />
     </div>
   );
 }

@@ -22,7 +22,7 @@ def now():
 
 
 async def seed_all(db):
-    if await db.companies.count_documents({}) > 0 or await db.users.count_documents({}) > 0:
+    if await db.companies.count_documents({}) > 0:
         return
 
     import os

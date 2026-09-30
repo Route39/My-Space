@@ -607,10 +607,6 @@ async def list_employees(user: dict = Depends(get_current_user)):
             {"id": emp["id"] if emp else None},
         ]}
     emps = await db.employees.find(q, {"_id": 0}).to_list(500)
-    urs = await db.users.find({"org_id": user["org_id"]}, {"_id": 0, "employee_id_ref": 1, "role": 1}).to_list(1000)
-    role_map = {u.get("employee_id_ref"): u.get("role") for u in urs}
-    for e in emps:
-        e["role"] = role_map.get(e["id"], "staff")
     return emps
 
 
@@ -663,8 +659,6 @@ async def get_employee(emp_id: str, user: dict = Depends(get_current_user)):
         self_emp = await get_employee_for_user(user)
         if not self_emp or self_emp["id"] != emp_id:
             raise HTTPException(status_code=403, detail="Not allowed")
-    u = await db.users.find_one({"employee_id_ref": emp_id, "org_id": user["org_id"]}, {"_id": 0, "role": 1})
-    emp["role"] = (u or {}).get("role", "staff")
     return emp
 
 
@@ -683,7 +677,7 @@ async def update_employee(emp_id: str, body: EmployeeIn, user: dict = Depends(re
     user_upd = {"email": email, "phone": body.phone}
     if body.password:
         user_upd["password_hash"] = hash_password(body.password)
-    if "role" in body.model_fields_set and body.role:
+    if body.role:
         user_upd["role"] = body.role
         
     await db.users.update_one({"employee_id_ref": emp_id, "org_id": user["org_id"]}, {"$set": user_upd})
@@ -908,48 +902,6 @@ async def all_attendance(date: Optional[str] = None, department: Optional[str] =
     if status:
         rows = [r for r in rows if r["status"] == status]
     return rows
-
-
-@api.get("/attendance/employee/{emp_id}")
-async def employee_month_attendance(emp_id: str, month: Optional[str] = None,
-                                    user: dict = Depends(require_roles("admin", "team_leader"))):
-    allowed = {e["id"] for e in await list_employees(user)}
-    if emp_id not in allowed:
-        raise HTTPException(status_code=403, detail="Not allowed")
-    m = month or today_str()[:7]
-    try:
-        y, mo = int(m[:4]), int(m[5:7])
-        first = date(y, mo, 1)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid month")
-    nxt = date(y + 1, 1, 1) if mo == 12 else date(y, mo + 1, 1)
-    last = nxt - timedelta(days=1)
-    today = date.fromisoformat(today_str())
-    att = await db.attendance.find({"employee_id": emp_id, "date": {"$gte": first.isoformat(), "$lte": last.isoformat()}}, {"_id": 0}).to_list(100)
-    att_map = {a["date"]: a for a in att}
-    leaves = await db.leaves.find({"org_id": user["org_id"], "employee_id": emp_id, "status": "Approved",
-                                   "from_date": {"$lte": last.isoformat()}, "to_date": {"$gte": first.isoformat()}}, {"_id": 0}).to_list(100)
-    days, summary = [], {}
-    d = first
-    while d <= last:
-        ds = d.isoformat()
-        a = att_map.get(ds)
-        if a:
-            st = a.get("status")
-        elif any(l.get("from_date", "") <= ds <= l.get("to_date", "") for l in leaves):
-            st = "Leave"
-        elif d <= today:
-            st = "Absent"
-        else:
-            st = None
-        if st:
-            summary[st] = summary.get(st, 0) + 1
-        days.append({"date": ds, "status": st,
-                     "check_in": a.get("check_in") if a else None,
-                     "check_out": a.get("check_out") if a else None,
-                     "hours": a.get("hours", 0) if a else 0})
-        d += timedelta(days=1)
-    return {"employee_id": emp_id, "month": m, "days": days, "summary": summary}
 
 
 @api.put("/attendance/{att_id}")

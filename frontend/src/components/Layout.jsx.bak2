@@ -334,8 +334,8 @@ export default function Layout({ children }) {
     return () => clearInterval(t);
   }, [location.pathname]);
 
-  const nav = ALL_NAV.filter((n) => !(user.role === "admin_staff" && n.to === "/payslip")) /* 2nd Payslip hidden for Admin + Staff */.filter((n) => n.roles.includes(user.role) || user.role === "admin_staff");
-  const roleLabel = { admin: "Admin", admin_staff: "Admin + Staff", team_leader: "Team Leader", staff: "Staff" }[user.role];
+  const nav = ALL_NAV.filter((n) => n.roles.includes(user.role) || user.role === "admin_staff");
+  const roleLabel = { admin: "Admin", admin_staff: "Admin", team_leader: "Team Leader", staff: "Staff" }[user.role];
   const title = TITLES[location.pathname] || (location.pathname.startsWith("/staff/") ? "Staff" : "MySpace");
   const payrollTo = user.role === "staff" ? "/payslip" : "/payroll";
   const MOBILE_NAV = [

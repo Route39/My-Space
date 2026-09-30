@@ -910,48 +910,6 @@ async def all_attendance(date: Optional[str] = None, department: Optional[str] =
     return rows
 
 
-@api.get("/attendance/employee/{emp_id}")
-async def employee_month_attendance(emp_id: str, month: Optional[str] = None,
-                                    user: dict = Depends(require_roles("admin", "team_leader"))):
-    allowed = {e["id"] for e in await list_employees(user)}
-    if emp_id not in allowed:
-        raise HTTPException(status_code=403, detail="Not allowed")
-    m = month or today_str()[:7]
-    try:
-        y, mo = int(m[:4]), int(m[5:7])
-        first = date(y, mo, 1)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid month")
-    nxt = date(y + 1, 1, 1) if mo == 12 else date(y, mo + 1, 1)
-    last = nxt - timedelta(days=1)
-    today = date.fromisoformat(today_str())
-    att = await db.attendance.find({"employee_id": emp_id, "date": {"$gte": first.isoformat(), "$lte": last.isoformat()}}, {"_id": 0}).to_list(100)
-    att_map = {a["date"]: a for a in att}
-    leaves = await db.leaves.find({"org_id": user["org_id"], "employee_id": emp_id, "status": "Approved",
-                                   "from_date": {"$lte": last.isoformat()}, "to_date": {"$gte": first.isoformat()}}, {"_id": 0}).to_list(100)
-    days, summary = [], {}
-    d = first
-    while d <= last:
-        ds = d.isoformat()
-        a = att_map.get(ds)
-        if a:
-            st = a.get("status")
-        elif any(l.get("from_date", "") <= ds <= l.get("to_date", "") for l in leaves):
-            st = "Leave"
-        elif d <= today:
-            st = "Absent"
-        else:
-            st = None
-        if st:
-            summary[st] = summary.get(st, 0) + 1
-        days.append({"date": ds, "status": st,
-                     "check_in": a.get("check_in") if a else None,
-                     "check_out": a.get("check_out") if a else None,
-                     "hours": a.get("hours", 0) if a else 0})
-        d += timedelta(days=1)
-    return {"employee_id": emp_id, "month": m, "days": days, "summary": summary}
-
-
 @api.put("/attendance/{att_id}")
 async def edit_attendance(att_id: str, body: AttendanceEditIn, user: dict = Depends(require_roles("admin"))):
     existing = await db.attendance.find_one({"id": att_id, "org_id": user["org_id"]}, {"_id": 0})
