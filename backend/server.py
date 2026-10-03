@@ -306,6 +306,13 @@ def compute_status(check_in_iso: str, shift: Optional[dict]) -> str:
     return "Present"
 
 
+LATE_EXCUSES_PER_MONTH = 3
+
+
+def is_week_off(date_str: str) -> bool:
+    return date.fromisoformat(date_str).weekday() == 6
+
+
 def hours_between(ci: str, co: str) -> float:
     a = datetime.fromisoformat(ci)
     b = datetime.fromisoformat(co)
@@ -351,6 +358,8 @@ async def create_organization(name, slug, admin_name, admin_email, password,
     shift_id = uid()
     await db.shifts.insert_one({"id": shift_id, "org_id": org_id, "name": "General Shift",
                                 "start_time": "09:30", "end_time": "18:30", "grace_minutes": 10})
+    await db.shifts.insert_one({"id": uid(), "org_id": org_id, "name": "Permission Shift",
+                                "start_time": "10:00", "end_time": "19:00", "grace_minutes": 10})
     emp_id, user_id = uid(), uid()
     await db.employees.insert_one({
         "id": emp_id, "org_id": org_id, "user_id": user_id, "employee_code": "EMP1000",
@@ -389,6 +398,11 @@ async def run_migrations():
                 upd[k] = v
         if upd:
             await db.companies.update_one({"_id": c["_id"]}, {"$set": upd})
+    async for c in db.companies.find({}):
+        oid = c.get("id") or str(c["_id"])
+        if not await db.shifts.find_one({"org_id": oid, "name": "Permission Shift"}):
+            await db.shifts.insert_one({"id": uid(), "org_id": oid, "name": "Permission Shift",
+                                        "start_time": "10:00", "end_time": "19:00", "grace_minutes": 10})
     await db.companies.update_one({"name": "Route39 Technologies"}, {"$set": {"slug": "route39"}})
     if not await db.users.find_one({"role": "super_admin"}):
         await db.users.insert_one({"id": uid(), "org_id": None, "email": "platform@attendy.in",
@@ -732,7 +746,7 @@ async def update_my_profile(body: UserProfileUpdateIn, user: dict = Depends(get_
             emp_updates["designation"] = body.designation
         if body.location is not None:
             emp_updates["location"] = body.location
-        if body.joining_date is not None:
+        if body.joining_date is not None and user.get("role") in ("admin", "admin_staff"):
             emp_updates["joining_date"] = body.joining_date
         if body.salary_type is not None:
             emp_updates["salary_type"] = body.salary_type
@@ -769,22 +783,34 @@ async def checkin(user: dict = Depends(get_current_user)):
     ci = now_ist().isoformat()
     status = compute_status(ci, shift)
     
-    if status == "Late":
-        last_3 = await db.attendance.find({"employee_id": emp["id"], "date": {"$lt": today}}).sort("date", -1).limit(3).to_list(3)
-        if len(last_3) == 3 and all(a.get("status") in ("Late", "Half Day") for a in last_3):
+    late_checkin = False
+    late_count = 0
+    if is_week_off(today):
+        status = "Present"
+    elif status == "Late":
+        late_checkin = True
+        month_prefix = today[:7]
+        prior_late = await db.attendance.count_documents({
+            "employee_id": emp["id"], "date": {"$regex": f"^{month_prefix}", "$lt": today},
+            "$or": [{"status": "Late"}, {"late_checkin": True}],
+        })
+        late_count = prior_late + 1
+        if late_count > LATE_EXCUSES_PER_MONTH:
             status = "Half Day"
 
     if existing:
-        # If admin changed Leave -> Present, we keep it as Present/Late based on time
-        new_status = status if existing.get("status") == "Leave" else existing.get("status", status)
-        await db.attendance.update_one({"id": existing["id"]}, {"$set": {"check_in": ci, "status": new_status}})
+        new_status = status if existing.get("status") in ("Leave", "Week Off") else existing.get("status", status)
+        await db.attendance.update_one({"id": existing["id"]}, {"$set": {"check_in": ci, "status": new_status, "late_checkin": late_checkin}})
         doc = await db.attendance.find_one({"id": existing["id"]}, {"_id": 0})
     else:
         doc = {"id": uid(), "org_id": user["org_id"], "employee_id": emp["id"],
-               "date": today, "check_in": ci, "check_out": None, "hours": 0, "status": status}
+               "date": today, "check_in": ci, "check_out": None, "hours": 0, "status": status,
+               "late_checkin": late_checkin}
         await db.attendance.insert_one(doc)
         doc.pop("_id", None)
-        
+    doc["late_count_month"] = late_count
+    doc["late_excuses_left"] = max(0, LATE_EXCUSES_PER_MONTH - late_count) if late_checkin else None
+
     await log_activity(user["org_id"], f"{emp['name']} checked in")
     return doc
 
@@ -851,7 +877,7 @@ async def get_missed_checkouts(user: dict = Depends(require_roles("admin", "team
     return records
 
 @api.get("/attendance/me")
-async def my_attendance(range: str = "month", user: dict = Depends(get_current_user)):
+async def my_attendance(range: str = "month", month: Optional[str] = None, user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
     if not emp:
         return {"today": None, "history": []}
@@ -865,8 +891,11 @@ async def my_attendance(range: str = "month", user: dict = Depends(get_current_u
         start = today - timedelta(days=today.weekday())
     else:
         start = today.replace(day=1)
+    date_q = {"$gte": start.isoformat()}
+    if month and len(month) == 7:
+        date_q = {"$gte": f"{month}-01", "$lte": f"{month}-31"}
     hist = await db.attendance.find(
-        {"employee_id": emp["id"], "date": {"$gte": start.isoformat()}}, {"_id": 0}
+        {"employee_id": emp["id"], "date": date_q}, {"_id": 0}
     ).sort("date", -1).to_list(100)
     todoc = await db.attendance.find_one({"employee_id": emp["id"], "date": today.isoformat()}, {"_id": 0})
     return {"today": todoc, "history": hist}
@@ -895,6 +924,8 @@ async def all_attendance(date: Optional[str] = None, department: Optional[str] =
             st = a["status"]
         elif e["id"] in leave_ids:
             st = "Leave"
+        elif is_week_off(d):
+            st = "Week Off"
         else:
             st = "Absent"
         rows.append({
@@ -938,6 +969,8 @@ async def employee_month_attendance(emp_id: str, month: Optional[str] = None,
             st = a.get("status")
         elif any(l.get("from_date", "") <= ds <= l.get("to_date", "") for l in leaves):
             st = "Leave"
+        elif d.weekday() == 6:
+            st = "Week Off"
         elif d <= today:
             st = "Absent"
         else:
@@ -1285,10 +1318,10 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         extras = {k: prev.get(k, 0) for k in EXTRA_KEYS}
         extras["extra_duty_days"] = sun_days
         if not prev.get("extra_duty_manual"):
-            extras["extra_duty"] = round(per_day * sun_days, 2)
+            extras["extra_duty"] = round((salary / 30) * sun_days, 2)  # Sunday duty = salary / 30
         if prev.get("att_manual"):
             wd_m = prev.get("working_days") or wd
-            lop_days = max(0, wd_m - prev.get("present_days", 0))
+            lop_days = max(0, wd_m - max(0, prev.get("present_days", 0) - sun_days))
             lop = round((salary / wd_m) * lop_days, 2) if wd_m else 0
             extras.update(att_manual=True, working_days=wd_m, present_days=prev.get("present_days", 0), weekly_off=prev.get("weekly_off", 0))
         net = calc_net(salary, lop, overtime, incentive, deduction, extras)
@@ -1325,12 +1358,13 @@ EMP_KEYS = ["department", "designation", "joining_date", "location", "business_u
 
 def calc_net(salary, lop, overtime, incentive, deduction, extras):
     earn = salary + overtime + incentive + extras.get("extra_duty", 0)
-    ded = lop + deduction + sum(extras.get(k, 0) for k in ["pf", "esi", "mess", "advance"])
+    ded = lop + deduction + sum(extras.get(k, 0) for k in ["pf", "esi", "advance"])
     return round(max(0, earn - ded), 2)
 
 
 class PayrollAdjustIn(BaseModel):
     incentive: Optional[float] = None
+    autos: Optional[float] = None
     deduction: Optional[float] = None
     extra_duty: Optional[float] = None
     pf: Optional[float] = None
