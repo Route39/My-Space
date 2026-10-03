@@ -16,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { money, dateStr } from "@/lib/format";
+import { locationOptions } from "@/lib/locations";
 
 export default function Staff() {
   const navigate = useNavigate();
@@ -26,10 +27,11 @@ export default function Staff() {
   const [shifts, setShifts] = useState([]);
   const [locs, setLocs] = useState([]);
   const [q, setQ] = useState("");
+  const [locFilter, setLocFilter] = useState("all");
   const [open, setOpen] = useState(false);
   const [drawer, setDrawer] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "", role: "staff", work_mode: "Office" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", department: "", designation: "", monthly_salary: "", shift_id: "", location: "", joining_date: "", role: "staff", work_mode: "Office" });
 
   const load = async () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -54,12 +56,13 @@ export default function Staff() {
     setBusy(false);
   };
 
-  const filtered = emps.filter((e) => [e.name, e.employee_code, e.department, e.designation].join(" ").toLowerCase().includes(q.toLowerCase()));
+  const locNames = locationOptions(locs, emps.map((e) => e.location));
+  const filtered = emps.filter((e) => [e.name, e.employee_code, e.department, e.designation, e.location].join(" ").toLowerCase().includes(q.toLowerCase()) && (locFilter === "all" || (e.location || "").toLowerCase() === locFilter.toLowerCase()));
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h1 className="font-heading text-3xl font-bold text-slate-900 tracking-tight md:hidden">Staff</h1><p className="text-slate-500">{emps.length} team members</p></div>
+        <div><h1 className="font-heading text-3xl font-bold text-slate-900 tracking-tight md:hidden">Staff</h1><p className="text-slate-500">{filtered.length === emps.length ? `${emps.length} team members` : `${filtered.length} of ${emps.length} team members`}</p></div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button data-testid="add-staff-btn" className="rounded-xl bg-emerald-600 hover:bg-emerald-700 h-10"><Plus className="w-4 h-4 mr-1" /> Add Staff</Button></DialogTrigger>
           <DialogContent className="rounded-2xl max-w-lg max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
@@ -105,10 +108,11 @@ export default function Staff() {
                   <SelectContent><SelectItem value="Office">Office</SelectItem><SelectItem value="Work from Home">Work from Home</SelectItem><SelectItem value="Hybrid">Hybrid</SelectItem></SelectContent>
                 </Select>
               </div>
+              <div><Label>Date of Joining</Label><Input type="date" className="rounded-xl mt-1" value={form.joining_date} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} /></div>
               <div><Label>Location</Label>
                 <Select value={form.location} onValueChange={(v) => setForm({ ...form, location: v })}>
                   <SelectTrigger className="rounded-xl mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>{locs.map((l) => <SelectItem key={l.id} value={l.name}>{l.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{locNames.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
@@ -117,9 +121,19 @@ export default function Staff() {
         </Dialog>
       </div>
 
-      <div className="relative max-w-xs">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <Input data-testid="staff-search" placeholder="Search staff…" value={q} onChange={(e) => setQ(e.target.value)} className="rounded-xl pl-9 h-10 bg-white" />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Input data-testid="staff-search" placeholder="Search staff…" value={q} onChange={(e) => setQ(e.target.value)} className="rounded-xl pl-9 h-10 bg-white" />
+        </div>
+        <Select value={locFilter} onValueChange={setLocFilter}>
+          <SelectTrigger data-testid="staff-location-filter" className="rounded-xl h-10 w-full sm:w-48 bg-white"><SelectValue placeholder="All Locations" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Locations</SelectItem>
+            {locNames.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {locFilter !== "all" && <button onClick={() => setLocFilter("all")} className="text-xs text-emerald-600 font-medium">Clear</button>}
       </div>
 
       {filtered.length === 0 ? (
@@ -141,7 +155,7 @@ export default function Staff() {
               </div>
               <div className="flex items-center justify-between mt-4 text-xs text-slate-500">
                 <span className="px-2 py-1 rounded-lg bg-slate-50">{e.department}</span>
-                <span className="text-slate-400">{e.employee_code}</span>
+                <span className="text-slate-400">{e.location ? `${e.location} · ` : ""}{e.employee_code}</span>
               </div>
             </button>
           ))}

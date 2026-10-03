@@ -208,7 +208,7 @@ export default function PayslipDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Button
           variant="outline"
           onClick={() => navigate("/payroll")}
@@ -239,10 +239,10 @@ export default function PayslipDetail() {
       </div>
 
       <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-sm">
-        <div className="bg-emerald-600 text-white p-7">
-          <div className="flex items-start justify-between gap-5">
+        <div className="bg-emerald-600 text-white p-4 sm:p-7">
+          <div className="flex items-start justify-between gap-3 sm:gap-5">
             <div>
-              <p className="text-2xl font-bold">{company?.name || "Company"}</p>
+              <p className="text-xl sm:text-2xl font-bold">{company?.name || "Company"}</p>
               <p className="text-sm text-emerald-100 mt-1">
                 {company?.address || ""}
               </p>
@@ -259,7 +259,7 @@ export default function PayslipDetail() {
           </div>
         </div>
 
-        <div className="p-6 md:p-8 space-y-8">
+        <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
           <div className="flex items-center justify-between border-b border-slate-100 pb-5">
             <div>
               <p className="text-xl font-bold text-slate-900">

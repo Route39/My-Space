@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { money, dateStr, shortDate } from "@/lib/format";
+import { locationOptions } from "@/lib/locations";
 
 export default function EmployeeProfile() {
   const { id } = useParams();
@@ -43,6 +44,7 @@ export default function EmployeeProfile() {
       api.get("/shifts").catch(()=>({data:[]}))
     ]);
     setDepts(d.data); setDesigs(dg.data); setShifts(s.data);
+    api.get("/locations").then((r) => setLocs(r.data)).catch(() => {});
   };
   useEffect(() => { load(); }, [id]);
 
@@ -160,10 +162,11 @@ export default function EmployeeProfile() {
                   <SelectContent><SelectItem value="Office">Office</SelectItem><SelectItem value="Work from Home">Work from Home</SelectItem><SelectItem value="Hybrid">Hybrid</SelectItem></SelectContent>
                 </Select>
               </div>
+              {isAdmin && <div><Label>Date of Joining</Label><Input type="date" className="rounded-xl mt-1" value={form.joining_date || ""} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} /></div>}
               <div><Label>Location</Label>
                 <Select value={form.location} onValueChange={(v) => setForm({ ...form, location: v })}>
                   <SelectTrigger className="rounded-xl mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>{locs.map((l) => <SelectItem key={l.id} value={l.name}>{l.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{locationOptions(locs, form.location).map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>

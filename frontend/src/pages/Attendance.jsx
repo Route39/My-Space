@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LogIn, Coffee, Flag, CircleDot } from "lucide-react";
+import { LogIn, Coffee, Flag, CircleDot, List, CalendarDays } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -56,16 +56,61 @@ function Timeline({ today, shift }) {
   );
 }
 
+const CAL_COLORS = {
+  Present: "bg-emerald-100 text-emerald-700", Late: "bg-amber-100 text-amber-700",
+  "Half Day": "bg-orange-100 text-orange-700", Permission: "bg-sky-100 text-sky-700",
+  Absent: "bg-red-100 text-red-600", Leave: "bg-blue-100 text-blue-700",
+  Holiday: "bg-purple-100 text-purple-700", "Work from Home": "bg-teal-100 text-teal-700",
+};
+
+function MonthCalendar({ month, history }) {
+  const [y, m] = month.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const byDate = Object.fromEntries(history.map((a) => [a.date, a]));
+  const cells = [...Array(first).fill(null), ...Array.from({ length: dim }, (_, i) => i + 1)];
+  const used = [...new Set(history.map((a) => a.status))];
+  return (
+    <div className="p-3 sm:p-5">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[10px] sm:text-xs text-slate-400 mb-1">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d}>{d}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
+        {cells.map((d, i) => {
+          if (!d) return <div key={"e" + i} />;
+          const rec = byDate[`${month}-${String(d).padStart(2, "0")}`];
+          return (
+            <div key={d} title={rec ? `${rec.status}${rec.hours ? " · " + rec.hours + "h" : ""}` : ""}
+              className={`rounded-lg sm:rounded-xl min-h-[44px] sm:min-h-[64px] p-1 sm:p-2 flex flex-col justify-between border border-slate-100 ${rec ? CAL_COLORS[rec.status] || "bg-slate-100 text-slate-600" : "bg-white text-slate-400"}`}>
+              <span className="text-xs sm:text-sm font-semibold">{d}</span>
+              {rec && <span className="text-[8px] sm:text-[10px] leading-tight font-medium truncate">{rec.status}</span>}
+            </div>
+          );
+        })}
+      </div>
+      {used.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-4">
+          {used.map((s) => <span key={s} className={`text-[11px] px-2 py-0.5 rounded-full ${CAL_COLORS[s] || "bg-slate-100 text-slate-600"}`}>{s}</span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StaffAttendance() {
   const { employee } = useAuth();
   const [data, setData] = useState({ today: null, history: [] });
   const [shift, setShift] = useState(null);
   const [range, setRange] = useState("month");
+  const [month, setMonth] = useState("");
+  const [view, setView] = useState("list");
+  const calMonth = month || new Date().toISOString().slice(0, 7);
 
-  const load = async (r = range) => { const { data } = await api.get("/attendance/me", { params: { range: r } }); setData(data); };
+  const load = async (r = range, m = month) => { const { data } = await api.get("/attendance/me", { params: m ? { month: m } : { range: r } }); setData(data); };
   useEffect(() => { load(); }, []);
   useEffect(() => { if (employee?.shift_id) api.get("/shifts").then((res) => setShift(res.data.find((s) => s.id === employee.shift_id) || null)); }, [employee]);
-  const onRange = (r) => { setRange(r); load(r); };
+  const onRange = (r) => { setRange(r); setMonth(""); load(r, ""); };
+  const onMonth = (m) => { setMonth(m); load(range, m); };
 
   return (
     <div className="space-y-6">
@@ -81,16 +126,26 @@ function StaffAttendance() {
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-wrap gap-2">
           <h2 className="font-heading font-semibold text-slate-800">History</h2>
+          <div className="flex flex-wrap items-center gap-2">
+          <input type="month" value={month} max={new Date().toISOString().slice(0, 7)} onChange={(e) => onMonth(e.target.value)} data-testid="att-month"
+            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700" />
+          <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+            {[["list", List], ["calendar", CalendarDays]].map(([v, Icon]) => (
+              <button key={v} onClick={() => setView(v)} data-testid={`view-${v}`} title={v}
+                className={`px-2.5 py-1 rounded-lg transition-colors ${view === v ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}><Icon className="w-3.5 h-3.5" /></button>
+            ))}
+          </div>
           <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
             {["today", "week", "month"].map((r) => (
               <button key={r} onClick={() => onRange(r)} data-testid={`range-${r}`}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${range === r ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}>
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${!month && range === r ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}>
                 {r === "today" ? "Today" : r === "week" ? "This Week" : "This Month"}
               </button>
             ))}
           </div>
+          </div>
         </div>
-        {data.history.length === 0 ? <EmptyState icon={Coffee} title="No records for this period" /> : (
+        {view === "calendar" ? <MonthCalendar month={calMonth} history={data.history} /> : data.history.length === 0 ? <EmptyState icon={Coffee} title="No records for this period" /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-slate-500 text-xs">
@@ -137,15 +192,15 @@ function AdminAttendance({ user }) {
 
   const mark = async (empId, st) => { await api.post("/attendance/mark", null, { params: { employee_id: empId, date, status: st } }); toast.success("Attendance updated"); load(); };
 
-  const counts = { Present: 0, Late: 0, "Half Day": 0, Permission: 0, Absent: 0, Leave: 0, Holiday: 0, "Work from Home": 0 };
+  const counts = { Present: 0, Late: 0, "Half Day": 0, Permission: 0, Absent: 0, Leave: 0, Holiday: 0, "Week Off": 0, "Work from Home": 0 };
   rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
 
   const filteredRows = rows.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-        {[["Present", "text-emerald-600"], ["Late", "text-red-600"], ["Half Day", "text-red-600"], ["Permission", "text-amber-600"], ["Absent", "text-red-600"], ["Leave", "text-blue-600"], ["Holiday", "text-sky-600"], ["Work from Home", "text-purple-600"]].map(([k, c]) => (
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-3">
+        {[["Present", "text-emerald-600"], ["Late", "text-red-600"], ["Half Day", "text-red-600"], ["Permission", "text-amber-600"], ["Absent", "text-red-600"], ["Leave", "text-blue-600"], ["Holiday", "text-sky-600"], ["Week Off", "text-slate-500"], ["Work from Home", "text-purple-600"]].map(([k, c]) => (
           <div key={k} className="rounded-2xl bg-white border border-slate-200 p-4">
             <p className={`font-heading text-2xl font-bold ${c}`}>{counts[k]}</p>
             <p className="text-xs text-slate-500">{k}</p>
@@ -161,7 +216,7 @@ function AdminAttendance({ user }) {
         </Select>
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="rounded-xl w-36 bg-white" data-testid="att-status"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="all">All Status</SelectItem>{["Present", "Late", "Absent", "Leave", "Holiday", "Work from Home", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+          <SelectContent><SelectItem value="all">All Status</SelectItem>{["Present", "Late", "Absent", "Leave", "Holiday", "Week Off", "Work from Home", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
         </Select>
         <Input 
           placeholder="Search staff by name..." 
@@ -191,7 +246,7 @@ function AdminAttendance({ user }) {
                     <td className="px-5 py-3">
                       <Select value={r.status} onValueChange={(v) => mark(r.employee_id, v)}>
                         <SelectTrigger className="rounded-lg h-8 w-28 text-xs" data-testid={`mark-${r.employee_id}`}><SelectValue /></SelectTrigger>
-                        <SelectContent>{["Present", "Late", "Absent", "Leave", "Holiday", "Work from Home", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                        <SelectContent>{["Present", "Late", "Absent", "Leave", "Holiday", "Week Off", "Work from Home", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                       </Select>
                     </td>
                   )}

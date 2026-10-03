@@ -53,18 +53,20 @@ export default function Payslip() {
 
   return (
     <div className="grid lg:grid-cols-4 gap-6">
-      <div className="lg:col-span-1 space-y-2">
+      <div className="lg:col-span-1 min-w-0">
         <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Payslips</p>
+        <div className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0 no-scrollbar">
         {slips.map((s) => (
           <button key={s.id} onClick={() => openSlip(s.id)} data-testid={`slip-${s.month}`}
-            className={`w-full text-left rounded-xl border p-3 transition-colors ${active?.payroll?.id === s.id ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+            className={`w-40 shrink-0 lg:w-full text-left rounded-xl border p-3 transition-colors ${active?.payroll?.id === s.id ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 bg-white hover:border-slate-300"}`}>
             <div className="flex items-center justify-between"><p className="font-medium text-slate-800">{new Date(s.month + "-01").toLocaleDateString("en-IN", { timeZone: "UTC", month: "short", year: "numeric" })}</p><StatusBadge status={s.status} /></div>
             <p className="text-xs text-slate-400 mt-1">Net {money(s.net)}</p>
           </button>
         ))}
+        </div>
       </div>
 
-      {active && <div className="lg:col-span-3"><PayslipEdit readOnly pid={active.payroll.id} /></div>}
+      {active && <div className="lg:col-span-3 min-w-0"><PayslipEdit readOnly pid={active.payroll.id} /></div>}
       {false && active && (
         <div className="lg:col-span-3">
           <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-[0_10px_40px_-15px_rgba(15,23,42,0.12)]" data-testid="payslip-detail">

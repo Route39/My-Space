@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, Mail, Phone, Building2, Calendar, MapPin, Pencil } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { money, dateStr } from "@/lib/format";
 import api from "@/lib/api";
 import { toast } from "sonner";
+import { locationOptions } from "@/lib/locations";
 
 
 export default function Profile() {
@@ -92,6 +93,9 @@ function EditProfileModal({ user, employee, onClose, onSuccess }) {
     salary_type: employee?.salary_type || "Monthly"
   });
   const [busy, setBusy] = useState(false);
+  const [locs, setLocs] = useState([]);
+  const canEditJoin = user.role === "admin" || user.role === "admin_staff";
+  useEffect(() => { api.get("/locations").then((r) => setLocs(r.data)).catch(() => {}); }, []);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -99,6 +103,7 @@ function EditProfileModal({ user, employee, onClose, onSuccess }) {
     try {
       const payload = { ...data };
       if (!data.password) delete payload.password;
+      if (!canEditJoin) delete payload.joining_date;
       await api.put("/users/me", payload);
       toast.success("Profile updated successfully");
       onSuccess();
@@ -131,7 +136,10 @@ function EditProfileModal({ user, employee, onClose, onSuccess }) {
             </div>
             <div className="col-span-2 sm:col-span-1">
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Location</label>
-              <input type="text" value={data.location} onChange={(e) => setData({ ...data, location: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+              <select value={data.location} onChange={(e) => setData({ ...data, location: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors">
+                <option value="">Select</option>
+                {locationOptions(locs, data.location).map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
             </div>
             <div className="col-span-2 sm:col-span-1">
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Department</label>
@@ -143,7 +151,8 @@ function EditProfileModal({ user, employee, onClose, onSuccess }) {
             </div>
             <div className="col-span-2 sm:col-span-1">
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Joining Date</label>
-              <input type="date" value={data.joining_date} onChange={(e) => setData({ ...data, joining_date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors" />
+              <input type="date" value={data.joining_date} disabled={!canEditJoin} onChange={(e) => setData({ ...data, joining_date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed" />
+              {!canEditJoin && <p className="text-[11px] text-slate-400 mt-1">Only Admin can change this</p>}
             </div>
             <div className="col-span-2 sm:col-span-1">
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Salary Type</label>

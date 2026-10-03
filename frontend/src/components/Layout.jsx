@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   Users, Clock, KanbanSquare, Palmtree, Wallet, Settings, Bell, LogOut,
-  Home, User, PanelLeftClose, PanelLeft, NotebookPen, MessageCircle, X
+  Home, User, PanelLeftClose, PanelLeft, NotebookPen, MessageCircle, X, LayoutGrid
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
@@ -62,7 +62,7 @@ function NotificationBell() {
           {unread > 0 && <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center font-medium">{unread}</span>}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 p-0 rounded-2xl overflow-hidden">
+      <DropdownMenuContent align="end" className="w-[calc(100vw-2rem)] sm:w-80 p-0 rounded-2xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <span className="font-heading font-semibold text-slate-800">Notifications</span>
           {unread > 0 && <button onClick={markAll} data-testid="mark-all-read" className="text-xs text-emerald-600 font-medium">Mark all read</button>}
@@ -143,7 +143,7 @@ function ReminderDaemon() {
   if (activeReminders.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 left-6 md:left-[280px] z-[100] flex flex-col gap-3 max-w-sm w-full transition-all duration-300">
+    <div className="fixed bottom-24 md:bottom-6 left-3 right-3 md:right-auto md:left-[280px] z-[100] flex flex-col gap-3 md:max-w-sm md:w-full transition-all duration-300">
       {activeReminders.map(r => (
         <div key={r.id} className="bg-white rounded-2xl shadow-2xl border border-emerald-100 p-5 animate-in slide-in-from-bottom-5 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500 animate-pulse"></div>
@@ -286,6 +286,7 @@ export default function Layout({ children }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(localStorage.getItem("myspace_collapsed") === "1");
   const [unreadChat, setUnreadChat] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
   const isFirstLoadRef = useRef(true);
   const prevUnreadTimeRef = useRef(0);
   const soundDebounceRef = useRef(false);
@@ -342,7 +343,13 @@ export default function Layout({ children }) {
     { to: "/", label: "Home", icon: Home },
     { to: "/attendance", label: "Attendance", icon: Clock },
     { to: "/tasks", label: "Tasks", icon: KanbanSquare },
-    { to: "/myspace", label: "My Space", icon: NotebookPen },
+    { to: payrollTo, label: "Payslip", icon: Wallet },
+  ];
+  const mobilePaths = MOBILE_NAV.map((m) => m.to);
+  const moreActive = !mobilePaths.includes(location.pathname) && !(location.pathname.startsWith("/payroll") && payrollTo === "/payroll");
+  useEffect(() => { setMoreOpen(false); }, [location.pathname]);
+  const moreItems = [
+    ...nav.filter((n) => !(n.label === "Payslip" && n.to !== payrollTo)),
     { to: "/profile", label: "Profile", icon: User },
   ];
   const toggle = () => { const v = !collapsed; setCollapsed(v); localStorage.setItem("myspace_collapsed", v ? "1" : "0"); };
@@ -423,7 +430,7 @@ export default function Layout({ children }) {
       </div>
 
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 backdrop-blur-xl bg-white/90 border-t border-slate-200">
-        <div className="flex items-center justify-around px-1 py-2">
+        <div className="flex items-center justify-around px-1 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {MOBILE_NAV.map((item) => (
             <NavLink key={item.label} to={item.to} end={item.to === "/"} data-testid={`mnav-${item.label.toLowerCase()}`}
               className={({ isActive }) => `relative flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg ${isActive ? "text-emerald-600" : "text-slate-400"}`}>
@@ -436,8 +443,43 @@ export default function Layout({ children }) {
               )}
             </NavLink>
           ))}
+          <button onClick={() => setMoreOpen(true)} data-testid="mnav-more"
+            className={`relative flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg ${moreActive || moreOpen ? "text-emerald-600" : "text-slate-400"}`}>
+            <LayoutGrid className="w-5 h-5" strokeWidth={1.75} />
+            <span className="text-[10px] font-medium">More</span>
+            {unreadChat > 0 && <span className="absolute top-0 right-1 min-w-3.5 h-3.5 px-1 rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-medium ring-2 ring-white">{unreadChat}</span>}
+          </button>
         </div>
       </nav>
+
+      {moreOpen && (
+        <div className="md:hidden fixed inset-0 z-50" data-testid="mobile-more-sheet">
+          <div className="absolute inset-0 bg-slate-900/50" onClick={() => setMoreOpen(false)} />
+          <div className="absolute bottom-0 inset-x-0 bg-white rounded-t-3xl p-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl animate-in slide-in-from-bottom duration-200 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <div className="flex items-center gap-3 min-w-0">
+                <Avatar src={employee?.photo} name={user.name} size={38} />
+                <div className="min-w-0"><p className="font-semibold text-slate-800 truncate">{user.name}</p><p className="text-xs text-slate-400">{roleLabel}</p></div>
+              </div>
+              <button onClick={() => setMoreOpen(false)} className="p-2 rounded-full hover:bg-slate-100"><X className="w-5 h-5 text-slate-500" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {moreItems.map((item) => (
+                <NavLink key={item.label + item.to} to={item.to} end={item.to === "/"} onClick={() => setMoreOpen(false)}
+                  className={({ isActive }) => `relative flex flex-col items-center justify-center gap-1.5 rounded-2xl py-4 border text-xs font-medium ${isActive ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-100 bg-slate-50 text-slate-600 active:bg-slate-100"}`}>
+                  <item.icon className="w-6 h-6" strokeWidth={1.75} />
+                  {item.label}
+                  {item.label === "Chat" && unreadChat > 0 && <span className="absolute top-2 right-3 min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[10px] flex items-center justify-center">{unreadChat}</span>}
+                </NavLink>
+              ))}
+            </div>
+            <button onClick={() => { setMoreOpen(false); logout(); navigate("/login"); }}
+              className="mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-red-600 bg-red-50 active:bg-red-100">
+              <LogOut className="w-4 h-4" /> Logout
+            </button>
+          </div>
+        </div>
+      )}
       <ReminderDaemon />
       <NoticeDaemon />
     </div>

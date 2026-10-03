@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
 import PayslipEdit from "@/pages/PayslipEdit";
-import { RefreshCw, Wallet, TrendingUp, Users, Download, CheckCheck, Search } from "lucide-react";
+import { RefreshCw, Wallet, TrendingUp, Users, Download, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { Avatar } from "@/components/common";
@@ -20,7 +20,6 @@ export default function Payroll() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [q, setQ] = useState("");
 
   const load = async () => { const { data } = await api.get("/payroll", { params: { month } }); setRows(data); };
   useEffect(() => { load(); }, [month]);
@@ -33,7 +32,6 @@ export default function Payroll() {
   };
   const setStatus = async (id, status) => { await api.put(`/payroll/${id}/status`, { status }); toast.success(`Marked ${status}`); load(); };
 
-  const shown = rows.filter((r) => `${r.employee_name} ${r.employee_code}`.toLowerCase().includes(q.trim().toLowerCase()));
   const total = rows.reduce((s, r) => s + r.net, 0);
   const paid = rows.filter((r) => r.status === "Paid").length;
   const approved = rows.filter((r) => r.status === "Approved");
@@ -87,11 +85,6 @@ export default function Payroll() {
         <div className="rounded-2xl bg-white border border-slate-200 p-6"><div className="flex items-center gap-2 text-slate-400 text-sm mb-2"><TrendingUp className="w-4 h-4" /> Paid</div><p className="font-heading text-3xl font-bold text-emerald-600">{paid}<span className="text-lg text-slate-300">/{rows.length}</span></p></div>
       </div>
 
-      <div className="relative">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search employee name or ID..." data-testid="payroll-search" className="rounded-xl bg-white pl-9 h-10" />
-      </div>
-
       <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
         {rows.length === 0 ? <EmptyState icon={Wallet} title={`No payroll for ${monthLabel}`} subtitle="Click Generate to calculate salaries from attendance and leave." /> : (
           <div className="overflow-x-auto">
@@ -103,7 +96,7 @@ export default function Payroll() {
                 <th className="font-medium px-3 py-3 text-right">Net Salary</th><th className="font-medium px-5 py-3">Status</th>
               </tr></thead>
               <tbody>
-                {shown.map((r) => (
+                {rows.map((r) => (
                   <tr key={r.id} onClick={(ev) => { if (!ev.target.closest("button,input,select,[role=combobox],[role=option],[role=listbox]")) nav39(`/payroll/${r.id}`); }} className="cursor-pointer border-t border-slate-50 hover:bg-slate-50/80 transition-colors" data-testid={`payroll-row-${r.employee_code}`}>
                     <td className="px-5 py-3"><div className="flex items-center gap-2.5"><Avatar name={r.employee_name} size={30} /><div><p className="font-medium text-slate-700 leading-tight">{r.employee_name}</p><p className="text-xs text-slate-400">{r.employee_code}</p></div></div></td>
                     <td className="px-3 py-3 text-right text-slate-600">{money(r.salary)}</td>
@@ -122,7 +115,6 @@ export default function Payroll() {
                 ))}
               </tbody>
             </table>
-            {shown.length === 0 && <p className="text-center text-sm text-slate-400 py-8">No employee matches "{q}"</p>}
           </div>
         )}
       </div>

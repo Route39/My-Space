@@ -82,15 +82,9 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
   const earn = n(p.salary) + incentiveTotal + extraDuty;
   const ded = lop + n(p.pf) + n(p.esi) + n(p.advance) + n(p.deduction);
   const net = Math.max(0, earn - ded);
-  const toggleAtt = () => setP(manual ? { ...p, att_manual: false } : { ...p, att_manual: true, working_days: wd, present_days: present, weekly_off: woff, _pw_sum: present + woff });
-  const onAtt = (k, val) => {
-    const sum = p._pw_sum ?? (n(p.present_days) + n(p.weekly_off));   // present + weekly off stays constant
-    if (k === "weekly_off") setP({ ...p, weekly_off: val, _pw_sum: sum, present_days: Math.max(0, sum - n(val)) });
-    else if (k === "present_days") setP({ ...p, present_days: val, _pw_sum: n(val) + n(p.weekly_off) });
-    else setP({ ...p, [k]: val });
-  };
+  const toggleAtt = () => setP(manual ? { ...p, att_manual: false } : { ...p, att_manual: true, working_days: wd, present_days: present, weekly_off: woff });
   const attVal = (k, v) => edit && manual
-    ? <input type="number" step="0.5" value={p[k] ?? v} onChange={(ev) => onAtt(k, ev.target.value)} className="w-20 text-center text-xl font-bold bg-white border border-emerald-300 rounded" />
+    ? <input type="number" step="0.5" value={p[k] ?? v} onChange={(ev) => setP({ ...p, [k]: ev.target.value })} className="w-20 text-center text-xl font-bold bg-white border border-emerald-300 rounded" />
     : <p className="text-2xl font-bold">{v}</p>;
   const slipNo = `RT39/${yy}/${mm}${String(e.employee_code || "").replace(/\D/g, "").slice(-2)}`;
   const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
