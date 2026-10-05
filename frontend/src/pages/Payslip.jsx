@@ -108,7 +108,9 @@ export default function Payslip() {
                 <div className="text-center"><div className="w-40 border-t border-slate-300 pt-1"><p className="text-xs text-slate-400">Authorised Signatory</p></div></div>
               </div>
 
-              <Button onClick={downloadPdf} data-testid="download-payslip" className="mt-6 rounded-xl bg-slate-900 hover:bg-slate-800"><Download className="w-4 h-4 mr-2" /> Download Payslip PDF</Button>
+              {String(active.payroll.status || "").toLowerCase() === "paid"
+                ? <Button onClick={downloadPdf} data-testid="download-payslip" className="mt-6 rounded-xl bg-slate-900 hover:bg-slate-800"><Download className="w-4 h-4 mr-2" /> Download Payslip PDF</Button>
+                : <p className="mt-6 text-xs text-slate-500">Salary paid ஆனதும் download பண்ணலாம்.</p>}
             </div>
           </div>
         </div>

@@ -15,6 +15,16 @@ const AUTO_RATE = 500;   // incentive per auto
 const r2 = (v) => Math.round(v * 100) / 100;
 const n = (v) => Number(v) || 0;
 const fmt = (v) => n(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const BW_CSS = `
+.payslip-bw{background:#fff!important;background-image:none!important;border:1px solid #000!important;border-radius:0!important}
+.payslip-bw *{color:#000!important;border-color:#000!important;border-radius:0!important;box-shadow:none!important}
+.payslip-bw [class*="bg-"]{background:#fff!important}
+.payslip-bw .rounded-lg{border:1px solid #000!important}
+.payslip-bw .rounded-t-lg{border-bottom:1px solid #000!important}
+.payslip-bw table{border-collapse:collapse}
+.payslip-bw table td{border:1px solid #000!important}
+.payslip-bw svg,.payslip-bw [class*="bg-amber"]{display:none!important}
+`;
 
 function inWords(num) {
   num = Math.round(num);
@@ -67,17 +77,20 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
   const dim = new Date(Date.UTC(+yy, +mm, 0)).getUTCDate();
   const sundays = Array.from({ length: dim }, (_, i) => new Date(Date.UTC(+yy, +mm - 1, i + 1)).getUTCDay()).filter((x) => x === 0).length;
   const manual = !!p.att_manual;
-  const extraDays = n(p.auto_extra_duty_days ?? p.extra_duty_days);            // Sundays worked
+  const extraDays = p.att_manual
+    ? Math.max(0, sundays - n(p.weekly_off))
+    : n(p.auto_extra_duty_days ?? p.extra_duty_days);            // Sundays worked
   const wd = manual ? n(p.working_days) : dim - sundays;
   const present = manual ? n(p.present_days) : n(p.auto_present_days ?? p.present_days) + n(p.paid_leave_days) + extraDays;
   const woff = manual ? n(p.weekly_off) : Math.max(0, sundays - extraDays);
   const lopDays = Math.max(0, wd - Math.max(0, present - extraDays));
-  const lop = wd ? r2((n(p.salary) / wd) * lopDays) : 0;
+    const perDay = n(p.salary) / 30;
+  const lop = r2(Math.min(n(p.salary), perDay * lopDays));
   const extraManual = !!p.extra_duty_manual;
-  const extraDuty = extraManual ? n(p.extra_duty) : r2((n(p.salary) / DAY_BASE) * extraDays);
+  const extraDuty = extraManual ? n(p.extra_duty) : r2((n(p.salary) / 30) * extraDays);
   const autos = Math.max(0, Math.floor(n(p.autos)));
   const autoInc = autos * AUTO_RATE;
-  const incBase = n(p.incentive_base);
+  const incBase = 0;
   const incentiveTotal = incBase + autoInc;
   const earn = n(p.salary) + incentiveTotal + extraDuty;
   const ded = lop + n(p.pf) + n(p.esi) + n(p.advance) + n(p.deduction);
@@ -134,7 +147,15 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
     setPrinting(true);
     await new Promise((r) => setTimeout(r, 150));
     if (!ref.current) { setPrinting(false); return; }
-    const canvas = await html2canvas(ref.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true, windowWidth: 1280 });
+    ref.current.dataset.pdf = "1";
+    const canvas = await html2canvas(ref.current, {
+      scale: 2, backgroundColor: "#ffffff", useCORS: true, windowWidth: 1280,
+      onclone: (cd) => {
+        const s = cd.createElement("style"); s.textContent = BW_CSS; cd.head.appendChild(s);
+        cd.querySelector('[data-pdf="1"]')?.classList.add("payslip-bw");
+      },
+    });
+    delete ref.current.dataset.pdf;
     setPrinting(false);
     const doc = new jsPDF("p", "mm", "a4");
     const r = Math.min(210 / canvas.width, 297 / canvas.height);
@@ -153,10 +174,10 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
         <div className="flex-1" />
         {msg && <span className="text-sm text-emerald-700">{msg}</span>}
         {!readOnly && <button onClick={save} className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 h-10 text-sm"><Save className="w-4 h-4" /> Save</button>}
-        <button onClick={pdf} className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-4 h-10 text-sm"><Download className="w-4 h-4" /> Download PDF</button>
+        {(!readOnly || String(p.status || "").toLowerCase() === "paid") && <button onClick={pdf} className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-4 h-10 text-sm"><Download className="w-4 h-4" /> Download PDF</button>}
       </div>
 
-      <div ref={ref} style={printing ? { width: 900 } : undefined} className="max-w-4xl mx-auto bg-gradient-to-b from-emerald-50/60 to-white border border-emerald-100 rounded-2xl p-3 sm:p-6 text-slate-800">
+      <div ref={ref} style={printing ? { width: 900 } : undefined} className={`max-w-4xl mx-auto bg-gradient-to-b from-emerald-50/60 to-white border border-emerald-100 rounded-2xl p-3 sm:p-6 text-slate-800`}>
         <div className="flex items-center justify-between pb-4 border-b border-emerald-100">
           <div>
             <img src="/route39-logo.png" alt="Route39" className="h-10 sm:h-14 w-auto" />
@@ -209,13 +230,11 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
                 {row("Extra Duty" /* `Extra Duty (${extraDays} Sundays)` */, edit
                   ? <span className="inline-flex items-center gap-1">{extraManual && <button onClick={() => setP({ ...p, extra_duty_manual: false })} className="text-[10px] text-emerald-700 underline">auto</button>}<input type="number" value={extraManual ? (p.extra_duty ?? 0) : extraDuty} onChange={(ev) => setP({ ...p, extra_duty: ev.target.value, extra_duty_manual: true })} className="w-24 sm:w-28 text-right bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-xs" /></span>
                   : <span>{fmt(extraDuty)}</span>)}
-                {row("Incentive", edit
-                  ? <input type="number" value={p.incentive_base ?? 0} onChange={(ev) => setP({ ...p, incentive_base: ev.target.value })} className="w-24 sm:w-28 text-right bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-xs" />
-                  : <span>{fmt(incBase)}</span>)}
+                
                 {(edit || autos > 0) && row(<span>No. of Autos <span className="text-slate-400">(× ₹{AUTO_RATE})</span></span>, edit
                   ? <input type="number" min="0" step="1" value={p.autos ?? 0} onChange={(ev) => setP({ ...p, autos: ev.target.value })} className="w-24 sm:w-28 text-right bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-xs" />
                   : <span>{autos}</span>)}
-                {(edit || autos > 0) && row("Auto Incentive", <span>{fmt(autoInc)}</span>)}
+                {(edit || autos > 0) && row("Incentive", <span>{fmt(autoInc)}</span>)}
                 <tr className="border-t border-emerald-200 bg-emerald-50 font-bold"><td className="px-3 py-2">Total Earnings</td><td className="px-3 py-2 text-right">{fmt(earn)}</td></tr>
               </tbody>
             </table>
