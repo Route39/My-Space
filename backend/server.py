@@ -1298,7 +1298,8 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         for a in att:
             v = DAY_VALUE.get(a.get("status"), 0)
             if date.fromisoformat(a["date"][:10]).weekday() == 6:
-                sun_days += v
+                if a.get("check_in"):
+                    sun_days += v
             else:
                 present_days += v
             if a.get("hours", 0) > 9:
@@ -1440,7 +1441,7 @@ async def get_payslip(pid: str, user: dict = Depends(get_current_user)):
     import calendar as _cal
     _sun = lambda a: date.fromisoformat(a["date"][:10]).weekday() == 6
     p["auto_present_days"] = sum(DV.get(a.get("status"), 0) for a in att if not _sun(a))
-    p["auto_extra_duty_days"] = sum(DV.get(a.get("status"), 0) for a in att if _sun(a))
+    p["auto_extra_duty_days"] = sum(DV.get(a.get("status"), 0) for a in att if _sun(a) and a.get("check_in"))
     p["auto_working_days"] = month_working_days(p["month"])
     p["days_in_month"] = _cal.monthrange(int(p["month"][:4]), int(p["month"][5:7]))[1]
     return {"payroll": p, "employee": emp, "company": company}
