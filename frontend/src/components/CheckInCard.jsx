@@ -16,7 +16,9 @@ function shiftHours(shift) {
   if (!shift) return 9;
   const [sh, sm] = shift.start_time.split(":").map(Number);
   const [eh, em] = shift.end_time.split(":").map(Number);
-  return Math.max(1, (eh * 60 + em - (sh * 60 + sm)) / 60);
+  let diff = eh * 60 + em - (sh * 60 + sm);
+  if (diff <= 0) diff += 24 * 60; // overnight shift (ends 12:00 AM or later)
+  return Math.max(1, diff / 60);
 }
 
 export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) {

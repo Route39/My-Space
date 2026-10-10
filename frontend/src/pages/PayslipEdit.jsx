@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { MapPin, ArrowLeft, Save, Download, FileText, User, CalendarDays, Wallet, MinusCircle, Info, ClipboardList } from "lucide-react";
+import { ArrowLeft, Save, Download, FileText, User, CalendarDays, Wallet, MinusCircle, Info, ClipboardList } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import api from "@/lib/api";
@@ -15,16 +15,6 @@ const AUTO_RATE = 500;   // incentive per auto
 const r2 = (v) => Math.round(v * 100) / 100;
 const n = (v) => Number(v) || 0;
 const fmt = (v) => n(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const BW_CSS = `
-.payslip-bw{background:#fff!important;background-image:none!important;border:1px solid #000!important;border-radius:0!important}
-.payslip-bw *{color:#000!important;border-color:#000!important;border-radius:0!important;box-shadow:none!important}
-.payslip-bw [class*="bg-"]{background:#fff!important}
-.payslip-bw .rounded-lg{border:1px solid #000!important}
-.payslip-bw .rounded-t-lg{border-bottom:1px solid #000!important}
-.payslip-bw table{border-collapse:collapse}
-.payslip-bw table td{border:1px solid #000!important}
-.payslip-bw svg,.payslip-bw [class*="bg-amber"]{display:none!important}
-`;
 
 function inWords(num) {
   num = Math.round(num);
@@ -77,33 +67,24 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
   const dim = new Date(Date.UTC(+yy, +mm, 0)).getUTCDate();
   const sundays = Array.from({ length: dim }, (_, i) => new Date(Date.UTC(+yy, +mm - 1, i + 1)).getUTCDay()).filter((x) => x === 0).length;
   const manual = !!p.att_manual;
-  const extraDays = p.att_manual
-    ? Math.max(0, sundays - n(p.weekly_off))
-    : n(p.auto_extra_duty_days ?? p.extra_duty_days);            // Sundays worked
+  const extraDays = n(p.auto_extra_duty_days ?? p.extra_duty_days);            // Sundays worked
   const wd = manual ? n(p.working_days) : dim - sundays;
   const present = manual ? n(p.present_days) : n(p.auto_present_days ?? p.present_days) + n(p.paid_leave_days) + extraDays;
   const woff = manual ? n(p.weekly_off) : Math.max(0, sundays - extraDays);
   const lopDays = Math.max(0, wd - Math.max(0, present - extraDays));
-    const perDay = n(p.salary) / 30;
-  const lop = r2(Math.min(n(p.salary), perDay * lopDays));
+  const lop = wd ? r2((n(p.salary) / wd) * lopDays) : 0;
   const extraManual = !!p.extra_duty_manual;
-  const extraDuty = extraManual ? n(p.extra_duty) : r2((n(p.salary) / 30) * extraDays);
+  const extraDuty = extraManual ? n(p.extra_duty) : r2((n(p.salary) / DAY_BASE) * extraDays);
   const autos = Math.max(0, Math.floor(n(p.autos)));
   const autoInc = autos * AUTO_RATE;
-  const incBase = 0;
+  const incBase = 0; // manual incentive removed
   const incentiveTotal = incBase + autoInc;
   const earn = n(p.salary) + incentiveTotal + extraDuty;
   const ded = lop + n(p.pf) + n(p.esi) + n(p.advance) + n(p.deduction);
   const net = Math.max(0, earn - ded);
-  const toggleAtt = () => setP(manual ? { ...p, att_manual: false } : { ...p, att_manual: true, working_days: wd, present_days: present, weekly_off: woff, _pw_sum: present + woff });
-  const onAtt = (k, val) => {
-    const sum = p._pw_sum ?? (n(p.present_days) + n(p.weekly_off));   // present + weekly off stays constant
-    if (k === "weekly_off") setP({ ...p, weekly_off: val, _pw_sum: sum, present_days: Math.max(0, sum - n(val)) });
-    else if (k === "present_days") setP({ ...p, present_days: val, _pw_sum: n(val) + n(p.weekly_off) });
-    else setP({ ...p, [k]: val });
-  };
+  const toggleAtt = () => setP(manual ? { ...p, att_manual: false } : { ...p, att_manual: true, working_days: wd, present_days: present, weekly_off: woff });
   const attVal = (k, v) => edit && manual
-    ? <input type="number" step="0.5" value={p[k] ?? v} onChange={(ev) => onAtt(k, ev.target.value)} className="w-20 text-center text-xl font-bold bg-white border border-emerald-300 rounded" />
+    ? <input type="number" step="0.5" value={p[k] ?? v} onChange={(ev) => setP({ ...p, [k]: ev.target.value })} className="w-20 text-center text-xl font-bold bg-white border border-emerald-300 rounded" />
     : <p className="text-2xl font-bold">{v}</p>;
   const slipNo = `RT39/${yy}/${mm}${String(e.employee_code || "").replace(/\D/g, "").slice(-2)}`;
   const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -147,15 +128,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
     setPrinting(true);
     await new Promise((r) => setTimeout(r, 150));
     if (!ref.current) { setPrinting(false); return; }
-    ref.current.dataset.pdf = "1";
-    const canvas = await html2canvas(ref.current, {
-      scale: 2, backgroundColor: "#ffffff", useCORS: true, windowWidth: 1280,
-      onclone: (cd) => {
-        const s = cd.createElement("style"); s.textContent = BW_CSS; cd.head.appendChild(s);
-        cd.querySelector('[data-pdf="1"]')?.classList.add("payslip-bw");
-      },
-    });
-    delete ref.current.dataset.pdf;
+    const canvas = await html2canvas(ref.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true, windowWidth: 1280 });
     setPrinting(false);
     const doc = new jsPDF("p", "mm", "a4");
     const r = Math.min(210 / canvas.width, 297 / canvas.height);
@@ -174,18 +147,28 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
         <div className="flex-1" />
         {msg && <span className="text-sm text-emerald-700">{msg}</span>}
         {!readOnly && <button onClick={save} className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 h-10 text-sm"><Save className="w-4 h-4" /> Save</button>}
-        {(!readOnly || String(p.status || "").toLowerCase() === "paid") && <button onClick={pdf} className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-4 h-10 text-sm"><Download className="w-4 h-4" /> Download PDF</button>}
+        <button onClick={pdf} className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-4 h-10 text-sm"><Download className="w-4 h-4" /> Download PDF</button>
       </div>
 
-      <div ref={ref} style={printing ? { width: 900 } : undefined} className={`max-w-4xl mx-auto bg-gradient-to-b from-emerald-50/60 to-white border border-emerald-100 rounded-2xl p-3 sm:p-6 text-slate-800`}>
+      <div ref={ref} style={printing ? { width: 900 } : undefined} className="max-w-4xl mx-auto bg-gradient-to-b from-emerald-50/60 to-white border border-emerald-100 rounded-2xl p-3 sm:p-6 text-slate-800">
         <div className="flex items-center justify-between pb-4 border-b border-emerald-100">
           <div>
-            <img src="/route39-logo.png" alt="Route39" className="h-10 sm:h-14 w-auto" />
+            <div className="flex items-center gap-4">
+            <img src="/route39-logo.png" alt="Route39" className="h-14 w-auto" />
+            <div className="border-l border-emerald-200 pl-4 text-[10px] leading-snug text-slate-600 uppercase">
+              <div>NO 1C MARIYA NAGAR,</div>
+              <div>NEAR VIGNESHWARA TEX,</div>
+              <div>VALAYANKADU SOUTH,</div>
+              <div>TIRUPUR,</div>
+              <div>TAMIL NADU – 641603.</div>
+              <div className="mt-0.5 font-semibold text-slate-700">Ph: 8393943939</div>
+            </div>
+          </div>
             <div className="mt-1.5 flex items-center gap-2 text-[7px] sm:text-[10px] tracking-[0.18em] uppercase font-semibold whitespace-nowrap">
               <span className="text-slate-400">A Product of</span><span className="h-3 w-px bg-slate-400" /><span className="text-slate-900">Attendy Technologies Pvt Ltd</span>
             </div>
           </div>
-          <div className="text-right italic text-emerald-800 text-sm leading-tight">Building a<br />Better Tomorrow<div className="h-0.5 w-10 bg-emerald-600 ml-auto mt-1" /></div>
+          
         </div>
 
         <div className="flex flex-col items-center gap-2 mt-4 py-3 bg-emerald-50 border border-emerald-100 rounded-lg">
@@ -230,7 +213,6 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
                 {row("Extra Duty" /* `Extra Duty (${extraDays} Sundays)` */, edit
                   ? <span className="inline-flex items-center gap-1">{extraManual && <button onClick={() => setP({ ...p, extra_duty_manual: false })} className="text-[10px] text-emerald-700 underline">auto</button>}<input type="number" value={extraManual ? (p.extra_duty ?? 0) : extraDuty} onChange={(ev) => setP({ ...p, extra_duty: ev.target.value, extra_duty_manual: true })} className="w-24 sm:w-28 text-right bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-xs" /></span>
                   : <span>{fmt(extraDuty)}</span>)}
-                
                 {(edit || autos > 0) && row(<span>No. of Autos <span className="text-slate-400">(× ₹{AUTO_RATE})</span></span>, edit
                   ? <input type="number" min="0" step="1" value={p.autos ?? 0} onChange={(ev) => setP({ ...p, autos: ev.target.value })} className="w-24 sm:w-28 text-right bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-xs" />
                   : <span>{autos}</span>)}
@@ -255,7 +237,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
               </table>
             </div>
             <div className="mt-3 flex items-center justify-between bg-emerald-700 text-white rounded-lg px-4 py-2.5 font-bold"><span>Net Pay</span><span>₹ {fmt(net)}</span></div>
-            <div className="mt-2 flex flex-wrap text-xs border border-emerald-100 rounded-lg"><span className="px-3 py-2 text-slate-500 border-r border-emerald-100">Amount in Words</span><span className="px-3 py-2">Rupees {inWords(net)} Only</span></div>
+            <div className="mt-2 flex items-stretch text-xs border border-emerald-100 rounded-lg overflow-hidden"><span className="shrink-0 whitespace-nowrap px-3 py-2 text-slate-500 border-r border-emerald-100 bg-emerald-50/50 flex items-center">Amount in Words</span><span className="flex-1 min-w-0 px-3 py-2 font-medium leading-snug break-words flex items-center">Rupees {inWords(net)} Only</span></div>
           </div>
         </div>
 
@@ -287,12 +269,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
           <div><p className="font-semibold">Authorized Signatory</p><div className="border-t border-slate-300 mt-6 pt-1 text-slate-500">Founder / Director</div></div>
         </div>
 
-        <p className="mt-4 text-center text-[10px] text-slate-400">This is a computer-generated payslip and does not require a physical signature.</p>
 
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-[10px] text-slate-500 border-t border-emerald-100 pt-2">
-          <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-emerald-700" /> Route 39 &nbsp;|&nbsp; People · Places · Progress</span>
-          <span className="italic text-emerald-800 text-xs">Together We Grow</span>
-        </div>
       </div>
     </div>
   );

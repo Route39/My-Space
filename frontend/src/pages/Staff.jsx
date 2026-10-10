@@ -15,7 +15,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { money, dateStr } from "@/lib/format";
+import { money, dateStr, shiftLabel, lateAfter, fmtHM } from "@/lib/format";
 import { locationOptions } from "@/lib/locations";
 
 export default function Staff() {
@@ -88,8 +88,11 @@ export default function Staff() {
               <div><Label>Shift</Label>
                 <Select value={form.shift_id} onValueChange={(v) => setForm({ ...form, shift_id: v })}>
                   <SelectTrigger className="rounded-xl mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>{shifts.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{shifts.map((s) => <SelectItem key={s.id} value={s.id}>{shiftLabel(s)}</SelectItem>)}</SelectContent>
                 </Select>
+                {(() => { const sh = shifts.find((x) => x.id === form.shift_id); return sh ? (
+                  <p className="text-xs text-slate-500 mt-1.5">{fmtHM(sh.start_time)} – {fmtHM(sh.end_time)} · Late after {lateAfter(sh)} · Auto checkout {sh.auto_checkout_hours ?? 10}h</p>
+                ) : null; })()}
               </div>
               <div><Label>Role</Label>
                 <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>

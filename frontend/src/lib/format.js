@@ -35,3 +35,23 @@ export const PRIORITY = {
   Medium: { dot: "bg-amber-500", chip: "bg-amber-50 text-amber-600" },
   Low: { dot: "bg-slate-400", chip: "bg-slate-100 text-slate-500" },
 };
+
+
+// ---- shift helpers ----
+export function fmtHM(hm) {
+  if (!hm) return "—";
+  const [h, m] = hm.split(":").map(Number);
+  const ap = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ap}`;
+}
+
+export function lateAfter(shift) {
+  if (!shift?.start_time) return "—";
+  const [h, m] = shift.start_time.split(":").map(Number);
+  const total = h * 60 + m + Number(shift.grace_minutes ?? 10);
+  return fmtHM(`${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`);
+}
+
+export function shiftLabel(s) {
+  return `${s.name} (${fmtHM(s.start_time)} – ${fmtHM(s.end_time)})`;
+}

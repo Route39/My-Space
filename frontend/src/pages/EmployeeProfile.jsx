@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { money, dateStr, shortDate } from "@/lib/format";
+import { money, dateStr, shortDate, shiftLabel, lateAfter, fmtHM } from "@/lib/format";
 import { locationOptions } from "@/lib/locations";
 
 export default function EmployeeProfile() {
@@ -142,8 +142,11 @@ export default function EmployeeProfile() {
               <div><Label>Shift</Label>
                 <Select value={form.shift_id} onValueChange={(v) => setForm({ ...form, shift_id: v })}>
                   <SelectTrigger className="rounded-xl mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>{shifts.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{shifts.map((s) => <SelectItem key={s.id} value={s.id}>{shiftLabel(s)}</SelectItem>)}</SelectContent>
                 </Select>
+                {(() => { const sh = shifts.find((x) => x.id === form.shift_id); return sh ? (
+                  <p className="text-xs text-slate-500 mt-1.5">{fmtHM(sh.start_time)} – {fmtHM(sh.end_time)} · Late after {lateAfter(sh)} · Auto checkout {sh.auto_checkout_hours ?? 10}h</p>
+                ) : null; })()}
               </div>
               <div><Label>Role</Label>
                 <Select value={form.role || "staff"} onValueChange={(v) => setForm({ ...form, role: v })}>

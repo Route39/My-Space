@@ -1,5 +1,7 @@
+import { apiErr } from "@/lib/api";
+import { fmtHM, lateAfter } from "@/lib/format";
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Save } from "lucide-react";
+import { Plus, Trash2, Save, Pencil, X, Check } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -12,6 +14,8 @@ export default function Settings() {
   const [depts, setDepts] = useState([]);
   const [desigs, setDesigs] = useState([]);
   const [shifts, setShifts] = useState([]);
+  const [editId, setEditId] = useState(null);
+  const [editForm, setEditForm] = useState({ name: "", start_time: "09:30", end_time: "18:30", grace_minutes: 10, auto_checkout_hours: 10 });
   const [locs, setLocs] = useState([]);
   const [newDept, setNewDept] = useState("");
   const [newDesig, setNewDesig] = useState("");
@@ -37,6 +41,18 @@ export default function Settings() {
   const delDesig = async (id) => { await api.delete(`/designations/${id}`); load(); };
   const addLoc = async () => { if (!newLoc.trim()) return; await api.post("/locations", { name: newLoc }); setNewLoc(""); load(); };
   const delLoc = async (id) => { await api.delete(`/locations/${id}`); load(); };
+  const startEdit = (s) => { setEditId(s.id); setEditForm({ name: s.name, start_time: s.start_time, end_time: s.end_time, grace_minutes: s.grace_minutes ?? 10, auto_checkout_hours: s.auto_checkout_hours ?? 10 }); };
+  const saveEdit = async () => {
+    try {
+      await api.put(`/shifts/${editId}`, { ...editForm, grace_minutes: Number(editForm.grace_minutes), auto_checkout_hours: Number(editForm.auto_checkout_hours) });
+      toast.success("Shift updated"); setEditId(null); load();
+    } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
+  };
+  const delShift = async (id) => {
+    if (!window.confirm("Delete this shift?")) return;
+    try { await api.delete(`/shifts/${id}`); toast.success("Shift deleted"); load(); }
+    catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
+  };
   const addShift = async () => {
     if (!shiftForm.name.trim()) return;
     await api.post("/shifts", { ...shiftForm, grace_minutes: Number(shiftForm.grace_minutes) });
@@ -75,10 +91,28 @@ export default function Settings() {
             <p className="font-heading font-semibold text-slate-800 mb-3">Shifts</p>
             <div className="space-y-2 mb-4">
               {shifts.map((s) => (
-                <div key={s.id} className="flex items-center justify-between text-sm border border-slate-100 rounded-xl px-4 py-2.5">
-                  <span className="font-medium text-slate-700">{s.name}</span>
-                  <span className="text-slate-500">{s.start_time} → {s.end_time} · grace {s.grace_minutes}m</span>
-                </div>
+                editId === s.id ? (
+                  <div key={s.id} className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end border border-emerald-200 bg-emerald-50/40 rounded-xl p-3">
+                    <div><Label className="text-xs">Name</Label><Input className="rounded-xl mt-1" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></div>
+                    <div><Label className="text-xs">Start</Label><Input type="time" className="rounded-xl mt-1" value={editForm.start_time} onChange={(e) => setEditForm({ ...editForm, start_time: e.target.value })} /></div>
+                    <div><Label className="text-xs">End</Label><Input type="time" className="rounded-xl mt-1" value={editForm.end_time} onChange={(e) => setEditForm({ ...editForm, end_time: e.target.value })} /></div>
+                    <div><Label className="text-xs">Grace (min)</Label><Input type="number" className="rounded-xl mt-1" value={editForm.grace_minutes} onChange={(e) => setEditForm({ ...editForm, grace_minutes: e.target.value })} /></div>
+                    <div><Label className="text-xs">Auto checkout (hrs)</Label><Input type="number" className="rounded-xl mt-1" value={editForm.auto_checkout_hours} onChange={(e) => setEditForm({ ...editForm, auto_checkout_hours: e.target.value })} /></div>
+                    <div className="flex gap-2">
+                      <Button onClick={saveEdit} className="rounded-xl bg-emerald-600 hover:bg-emerald-700"><Check className="w-4 h-4" /></Button>
+                      <Button onClick={() => setEditId(null)} variant="outline" className="rounded-xl"><X className="w-4 h-4" /></Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={s.id} className="flex items-center justify-between text-sm border border-slate-100 rounded-xl px-4 py-2.5 gap-3">
+                    <span className="font-medium text-slate-700">{s.name}</span>
+                    <span className="text-slate-500 flex-1 text-right">
+                      {fmtHM(s.start_time)} → {fmtHM(s.end_time)} · grace {s.grace_minutes}m · <span className="text-red-500">late after {lateAfter(s)}</span> · auto checkout {s.auto_checkout_hours ?? 10}h
+                    </span>
+                    <button onClick={() => startEdit(s)} className="text-slate-400 hover:text-emerald-600" title="Edit"><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => delShift(s.id)} className="text-slate-400 hover:text-red-500" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                )
               ))}
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">

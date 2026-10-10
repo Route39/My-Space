@@ -204,6 +204,7 @@ class ShiftIn(BaseModel):
     start_time: str
     end_time: str
     grace_minutes: int = 10
+    auto_checkout_hours: float = 10
 
 
 class AttendanceEditIn(BaseModel):
@@ -291,6 +292,17 @@ async def get_employee_for_user(user: dict) -> Optional[dict]:
     return await db.employees.find_one({"user_id": user["id"]}, {"_id": 0})
 
 
+AUTO_CHECKOUT_HOURS = 10  # default: auto checkout after 10 hrs from check-in
+
+
+def shift_auto_hours(shift: Optional[dict]) -> float:
+    try:
+        h = float((shift or {}).get("auto_checkout_hours") or AUTO_CHECKOUT_HOURS)
+        return h if h > 0 else AUTO_CHECKOUT_HOURS
+    except (TypeError, ValueError):
+        return AUTO_CHECKOUT_HOURS
+
+
 def compute_status(check_in_iso: str, shift: Optional[dict]) -> str:
     ci = datetime.fromisoformat(check_in_iso)
     if shift and shift.get("start_time"):
@@ -301,7 +313,7 @@ def compute_status(check_in_iso: str, shift: Optional[dict]) -> str:
         grace = 10
         
     start = ci.replace(hour=sh, minute=sm, second=0, microsecond=0)
-    if ci > start + timedelta(minutes=grace):
+    if ci.replace(second=0, microsecond=0) > start + timedelta(minutes=grace):
         return "Late"
     return "Present"
 
@@ -826,46 +838,65 @@ async def checkout(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Not checked in")
     if att.get("check_out"):
         raise HTTPException(status_code=400, detail="Already checked out")
-    
+
+    shift = await db.shifts.find_one({"id": emp.get("shift_id")}, {"_id": 0}) if emp.get("shift_id") else None
+    ci_dt = datetime.fromisoformat(att["check_in"])
+    limit = ci_dt + timedelta(hours=shift_auto_hours(shift))
     now = now_ist()
-    if now.hour > 19 or (now.hour == 19 and now.minute >= 30):
-        now = now.replace(hour=18, minute=30, second=0, microsecond=0)
-    
+    update = {}
+    if now >= limit:  # forgot to checkout earlier -> cap at 10 hrs
+        now = limit
+        update["auto_checkout"] = True
+
     co = now.isoformat()
     hrs = hours_between(att["check_in"], co)
-    await db.attendance.update_one({"id": att["id"]}, {"$set": {"check_out": co, "hours": hrs}})
+    update.update({"check_out": co, "hours": hrs})
+    await db.attendance.update_one({"id": att["id"]}, {"$set": update})
     await log_activity(user["org_id"], f"{emp['name']} checked out")
     return await db.attendance.find_one({"id": att["id"]}, {"_id": 0})
 
 
 async def auto_fix_missing_checkouts(emp_id: Optional[str] = None, org_id: Optional[str] = None):
+    """Auto checkout anyone still checked-in once (check-in + shift.auto_checkout_hours) has passed (default 10 hrs)."""
     try:
         now = now_ist()
-        today = now.date().isoformat()
         query = {"check_out": None, "check_in": {"$ne": None}}
         if emp_id:
             query["employee_id"] = emp_id
         if org_id:
             query["org_id"] = org_id
-            
-        records = await db.attendance.find(query).to_list(1000)
+
+        records = await db.attendance.find(query).to_list(5000)
+        shift_cache: dict = {}
+        emp_shift: dict = {}
         for r in records:
+            eid = r["employee_id"]
+            if eid not in emp_shift:
+                emp = await db.employees.find_one({"id": eid}, {"_id": 0, "shift_id": 1})
+                emp_shift[eid] = (emp or {}).get("shift_id")
+            sid = emp_shift[eid]
+            if sid and sid not in shift_cache:
+                shift_cache[sid] = await db.shifts.find_one({"id": sid}, {"_id": 0})
+            shift = shift_cache.get(sid) if sid else None
+
             ci_dt = datetime.fromisoformat(r["check_in"])
-            is_past = r["date"] < today
-            # Only auto-checkout if the check-in itself was before 18:30
-            # Otherwise they are working a late shift or checked in late
-            is_late_today = r["date"] == today and (now.hour > 19 or (now.hour == 19 and now.minute >= 30)) and (ci_dt.hour < 18 or (ci_dt.hour == 18 and ci_dt.minute <= 30))
-            if is_past or is_late_today:
-                co_dt = ci_dt.replace(hour=18, minute=30, second=0, microsecond=0)
-                # If for some reason checkout is before checkin (e.g. past day late checkin), fallback
-                if co_dt < ci_dt:
-                    co_dt = ci_dt
+            co_dt = ci_dt + timedelta(hours=shift_auto_hours(shift))
+            if now >= co_dt:
                 co = co_dt.isoformat()
                 hrs = hours_between(r["check_in"], co)
-                await db.attendance.update_one({"id": r["id"]}, {"$set": {"check_out": co, "hours": hrs, "auto_checkout": True}})
+                await db.attendance.update_one(
+                    {"id": r["id"]}, {"$set": {"check_out": co, "hours": hrs, "auto_checkout": True}})
     except Exception as e:
-        import logging
         logging.error(f"Error in auto_fix_missing_checkouts: {e}")
+
+
+async def auto_checkout_loop():
+    """Background job: runs every minute so auto checkout happens even if nobody opens the page."""
+    import asyncio
+    while True:
+        await auto_fix_missing_checkouts()
+        await asyncio.sleep(60)
+
 
 @api.get("/attendance/missed_checkouts")
 async def get_missed_checkouts(user: dict = Depends(require_roles("admin", "team_leader"))):
@@ -2124,6 +2155,18 @@ async def clear_chat(recipient_id: Optional[str] = "group", user: dict = Depends
     await db.chats.update_many(query, {"$addToSet": {"deleted_for": user["id"]}})
     return {"ok": True}
 
+@api.delete("/shifts/{shift_id}")
+async def delete_shift(shift_id: str, user: dict = Depends(require_roles("admin"))):
+    existing = await db.shifts.find_one({"id": shift_id, "org_id": user["org_id"]}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Not found")
+    in_use = await db.employees.count_documents({"org_id": user["org_id"], "shift_id": shift_id})
+    if in_use:
+        raise HTTPException(status_code=400, detail=f"{in_use} staff are using this shift. Change their shift first.")
+    await db.shifts.delete_one({"id": shift_id, "org_id": user["org_id"]})
+    return {"ok": True}
+
+
 # include router
 app.include_router(api)
 
@@ -2147,3 +2190,9 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
+
+
+@app.on_event("startup")
+async def _start_auto_checkout_task():
+    import asyncio
+    app.state.auto_checkout_task = asyncio.create_task(auto_checkout_loop())

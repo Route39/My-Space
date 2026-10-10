@@ -32,8 +32,16 @@ function Timeline({ today, shift }) {
     const coHM = new Date(today.check_out).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
     const coMin = parseInt(coHM.slice(0, 2)) * 60 + parseInt(coHM.slice(3, 5));
     let seMin = 24 * 60;
-    if (shift?.end_time) { const [h, m] = shift.end_time.split(":").map(Number); seMin = h * 60 + m; }
-    if (coMin <= seMin) { events.push(co); events.push(se); } else { events.push(se); events.push(co); }
+    let coMinAdj = coMin;
+    if (shift?.end_time) {
+      const [h, m] = shift.end_time.split(":").map(Number); seMin = h * 60 + m;
+      if (shift.start_time) {
+        const [sh0, sm0] = shift.start_time.split(":").map(Number); const stMin = sh0 * 60 + sm0;
+        if (seMin <= stMin) seMin += 24 * 60; // overnight shift
+        if (coMin < stMin) coMinAdj = coMin + 24 * 60; // checkout after midnight
+      }
+    }
+    if (coMinAdj <= seMin) { events.push(co); events.push(se); } else { events.push(se); events.push(co); }
   } else {
     events.push({ time: "Now", label: "Working", icon: CircleDot, color: "text-emerald-500", bg: "bg-emerald-50", live: true });
     events.push({ time: fmtShift(shift?.end_time), label: "Shift End", icon: Flag, color: "text-slate-400", bg: "bg-slate-100" });

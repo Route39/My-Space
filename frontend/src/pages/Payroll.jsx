@@ -46,6 +46,13 @@ export default function Payroll() {
     for (const r of drafts) await api.put(`/payroll/${r.id}/status`, { status: "Approved" });
     toast.success(`${drafts.length} payslips approved`); load();
   };
+  const unpaid = rows.filter((r) => r.status !== "Paid");
+  const paidAll = async () => {
+    if (!unpaid.length) return toast.info("All payslips are already Paid");
+    if (!window.confirm(`Mark ${unpaid.length} payslips as Paid?`)) return;
+    for (const r of unpaid) await api.put(`/payroll/${r.id}/status`, { status: "Paid" });
+    toast.success(`${unpaid.length} payslips marked Paid`); load();
+  };
   const downloadAll = () => {
     if (!approved.length) return toast.info("No Approved payslips");
     zipRef.current = new JSZip();
@@ -70,6 +77,7 @@ export default function Payroll() {
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="payroll-month" className="rounded-xl w-full sm:w-40 bg-white" />
           <Button onClick={approveAll} variant="outline" className="rounded-xl h-10"><CheckCheck className="w-4 h-4 mr-1" /> Approve All</Button>
+          <Button onClick={paidAll} variant="outline" className="rounded-xl h-10"><CheckCheck className="w-4 h-4 mr-1" /> Paid All</Button>
           <Button onClick={downloadAll} disabled={!!bulk} className="rounded-xl bg-slate-900 hover:bg-slate-800 h-10"><Download className="w-4 h-4 mr-1" /> {bulk ? `Preparing ${bulk.i + 1}/${bulk.ids.length}...` : `Download All (${approved.length})`}</Button>
           <Button onClick={generate} disabled={busy} data-testid="generate-payroll" className="rounded-xl bg-emerald-600 hover:bg-emerald-700 h-10"><RefreshCw className={`w-4 h-4 mr-1 ${busy ? "animate-spin" : ""}`} /> Generate</Button>
         </div>

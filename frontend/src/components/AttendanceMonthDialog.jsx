@@ -31,6 +31,13 @@ const shiftMonth = (m, delta) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
+// compact time for calendar cells: "09:29 am" -> "9:29a"
+const tShort = (iso) => {
+  if (!iso) return "";
+  const m = timeStr(iso).match(/(\d+):(\d+)\s*([ap])m/i);
+  return m ? `${Number(m[1])}:${m[2]}${m[3].toLowerCase()}` : timeStr(iso);
+};
+
 export default function AttendanceMonthDialog({ employee, onClose }) {
   const [month, setMonth] = useState(thisMonth());
   const [data, setData] = useState(null);
@@ -52,7 +59,7 @@ export default function AttendanceMonthDialog({ employee, onClose }) {
 
   return (
     <Dialog open={!!employee} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="rounded-2xl max-w-2xl max-h-[92vh] overflow-y-auto" aria-describedby={undefined}>
+      <DialogContent className="rounded-2xl max-w-3xl max-h-[92vh] overflow-y-auto" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle className="font-heading flex items-center gap-2.5">
             {employee && <Avatar src={employee.photo} name={employee.name} size={32} />}
@@ -83,15 +90,17 @@ export default function AttendanceMonthDialog({ employee, onClose }) {
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="text-[11px] font-medium text-slate-400 py-1">{d}</div>)}
           {Array.from({ length: lead }).map((_, i) => <div key={`e${i}`} />)}
           {!data
-            ? Array.from({ length: 30 }).map((_, i) => <div key={i} className="h-14 rounded-lg bg-slate-100 animate-pulse" />)
+            ? Array.from({ length: 30 }).map((_, i) => <div key={i} className="h-24 rounded-lg bg-slate-100 animate-pulse" />)
             : data.days.map((d) => {
                 const day = Number(d.date.slice(8, 10));
                 const style = d.status ? DAY_STYLE[d.status] || "bg-slate-50 border-slate-200 text-slate-600" : "bg-white border-slate-100 text-slate-300";
                 const tip = d.status ? `${d.status}${d.check_in ? ` · In ${timeStr(d.check_in)}` : ""}${d.check_out ? ` · Out ${timeStr(d.check_out)}` : ""}${d.hours ? ` · ${d.hours}h` : ""}` : "No record";
                 return (
-                  <div key={d.date} title={tip} className={`h-14 rounded-lg border flex flex-col items-center justify-center ${style}`}>
+                  <div key={d.date} title={tip} className={`min-h-[92px] py-1.5 gap-0.5 rounded-lg border flex flex-col items-center justify-center ${style}`}>
                     <span className="text-sm font-semibold">{day}</span>
                     <span className="text-[10px] font-medium">{d.status ? SHORT[d.status] || d.status : ""}</span>
+                    {d.check_in ? <span className="text-[10px] leading-tight text-slate-600 whitespace-nowrap">{tShort(d.check_in)} – {d.check_out ? tShort(d.check_out) : "--"}</span> : null}
+                    {d.hours ? <span className="text-[10px] leading-tight font-semibold text-slate-700">{Number(d.hours).toFixed(1)}h</span> : null}
                   </div>
                 );
               })}
