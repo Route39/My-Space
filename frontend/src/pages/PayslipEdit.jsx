@@ -72,7 +72,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
   const present = manual ? n(p.present_days) : n(p.auto_present_days ?? p.present_days) + n(p.paid_leave_days) + extraDays;
   const woff = manual ? n(p.weekly_off) : Math.max(0, sundays - extraDays);
   const lopDays = Math.max(0, wd - Math.max(0, present - extraDays));
-  const lop = wd ? r2((n(p.salary) / wd) * lopDays) : 0;
+  const lop = r2((n(p.salary) / 30) * lopDays);
   const extraManual = !!p.extra_duty_manual;
   const extraDuty = extraManual ? n(p.extra_duty) : r2((n(p.salary) / DAY_BASE) * extraDays);
   const autos = Math.max(0, Math.floor(n(p.autos)));

@@ -292,7 +292,7 @@ async def get_employee_for_user(user: dict) -> Optional[dict]:
     return await db.employees.find_one({"user_id": user["id"]}, {"_id": 0})
 
 
-AUTO_CHECKOUT_HOURS = 10  # default: auto checkout after 10 hrs from check-in
+AUTO_CHECKOUT_HOURS = 11  # default: auto checkout after 10 hrs from check-in
 
 
 def shift_auto_hours(shift: Optional[dict]) -> float:
@@ -1326,7 +1326,7 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
     results = []
     for e in emps:
         salary = e.get("monthly_salary", 0)
-        per_day = salary / wd if wd else 0
+        per_day = salary / 30
         att = await db.attendance.find({"employee_id": e["id"], "date": {"$regex": f"^{month}"}}, {"_id": 0}).to_list(200)
         present_days = 0
         overtime_hours = 0
@@ -1360,7 +1360,7 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         if prev.get("att_manual"):
             wd_m = prev.get("working_days") or wd
             lop_days = max(0, wd_m - max(0, prev.get("present_days", 0) - sun_days))
-            lop = round((salary / wd_m) * lop_days, 2) if wd_m else 0
+            lop = round((salary / 30) * lop_days, 2)
             extras.update(att_manual=True, working_days=wd_m, present_days=prev.get("present_days", 0), weekly_off=prev.get("weekly_off", 0))
         net = calc_net(salary, lop, overtime, incentive, deduction, extras)
         existing = await db.payroll.find_one({"employee_id": e["id"], "month": month})
