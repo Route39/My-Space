@@ -412,9 +412,10 @@ async def run_migrations():
             await db.companies.update_one({"_id": c["_id"]}, {"$set": upd})
     async for c in db.companies.find({}):
         oid = c.get("id") or str(c["_id"])
-        if not await db.shifts.find_one({"org_id": oid, "name": "Permission Shift"}):
-            await db.shifts.insert_one({"id": uid(), "org_id": oid, "name": "Permission Shift",
-                                        "start_time": "10:00", "end_time": "19:00", "grace_minutes": 10})
+        await db.shifts.update_one(
+            {"org_id": oid, "name": "Permission Shift"},
+            {"$setOnInsert": {"id": uid(), "start_time": "10:00", "end_time": "19:00", "grace_minutes": 10}},
+            upsert=True)
     await db.companies.update_one({"name": "Route39 Technologies"}, {"$set": {"slug": "route39"}})
     if not await db.users.find_one({"role": "super_admin"}):
         await db.users.insert_one({"id": uid(), "org_id": None, "email": "platform@attendy.in",
@@ -834,6 +835,11 @@ async def checkout(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="No employee profile")
     today = today_str()
     att = await db.attendance.find_one({"employee_id": emp["id"], "date": today})
+    if not att or not att.get("check_in"):
+        yday = (now_ist() - timedelta(days=1)).date().isoformat()
+        prev = await db.attendance.find_one({"employee_id": emp["id"], "date": yday, "check_out": None})
+        if prev and prev.get("check_in"):
+            att = prev
     if not att or not att.get("check_in"):
         raise HTTPException(status_code=400, detail="Not checked in")
     if att.get("check_out"):

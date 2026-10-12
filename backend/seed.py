@@ -45,7 +45,7 @@ async def seed_all(db):
 
     shift = {"id": uid(), "org_id": org_id, "name": "General Shift",
              "start_time": "09:30", "end_time": "18:30", "grace_minutes": 10}
-    night = {"id": uid(), "org_id": org_id, "name": "Evening Shift",
+    night = {"id": uid(), "org_id": org_id, "name": "Second Shift",
              "start_time": "14:00", "end_time": "23:00", "grace_minutes": 10}
     perm = {"id": uid(), "org_id": org_id, "name": "Permission Shift",
             "start_time": "10:00", "end_time": "19:00", "grace_minutes": 10}
