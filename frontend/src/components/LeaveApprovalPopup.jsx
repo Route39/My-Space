@@ -93,7 +93,7 @@ export default function LeaveApprovalPopup() {
   useEffect(() => {
     if (!canApprove) return;
     load();
-    const int = setInterval(load, 15000);
+    const int = setInterval(() => !document.hidden && load(), 60000);
     return () => clearInterval(int);
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 

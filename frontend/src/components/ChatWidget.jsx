@@ -66,7 +66,7 @@ export default function ChatWidget() {
   useEffect(() => {
     fetchStaff();
     fetchMessages();
-    const interval = setInterval(fetchMessages, 3000);
+    const interval = setInterval(() => !document.hidden && fetchMessages(), open ? 4000 : 20000);
     return () => clearInterval(interval);
   }, [open]);
 

@@ -51,7 +51,7 @@ function NotificationBell() {
       }
     } catch (e) {} 
   };
-  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
+  useEffect(() => { load(); const t = setInterval(() => !document.hidden && load(), 60000); return () => clearInterval(t); }, []);
   const unread = items.filter((i) => !i.read).length;
   const markAll = async () => { await api.put("/notifications/read-all"); load(); };
   return (
@@ -112,7 +112,7 @@ function ReminderDaemon() {
     };
     
     load();
-    const t = setInterval(load, 10000); // check every 10s
+    const t = setInterval(() => !document.hidden && load(), 30000); // check every 30s (paused when tab hidden)
     return () => clearInterval(t);
   }, []);
 
@@ -199,7 +199,7 @@ function NoticeDaemon() {
       } catch (e) {}
     };
     load();
-    const t = setInterval(load, 30000); // Check every 30s for brand new notices
+    const t = setInterval(() => !document.hidden && load(), 60000); // Check every 60s for new notices
     return () => clearInterval(t);
   }, [user?.role]);
 
@@ -331,7 +331,7 @@ export default function Layout({ children }) {
       } catch (e) {}
     };
     fetchUnreadChat();
-    const t = setInterval(fetchUnreadChat, 3000); // Poll every 3 seconds for exact instantaneous sound
+    const t = setInterval(() => !document.hidden && fetchUnreadChat(), 15000); // Poll every 15s (paused when tab hidden)
     return () => clearInterval(t);
   }, [location.pathname]);
 

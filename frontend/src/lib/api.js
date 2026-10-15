@@ -10,6 +10,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    const url = error?.config?.url || "";
+    if (error?.response?.status === 401 && !url.includes("/auth/login") && localStorage.getItem("attendy_token")) {
+      localStorage.removeItem("attendy_token");
+      if (window.location.pathname !== "/login") window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
+
 export function apiErr(detail) {
   if (detail == null) return "Something went wrong.";
   if (typeof detail === "string") return detail;

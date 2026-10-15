@@ -82,7 +82,7 @@ export default function ChatPage() {
   // Poll for messages in the active chat
   useEffect(() => {
     fetchMessages();
-    const interval = setInterval(fetchMessages, 3000);
+    const interval = setInterval(() => !document.hidden && fetchMessages(), 4000);
     return () => clearInterval(interval);
   }, [activeChat]);
 
@@ -316,11 +316,11 @@ export default function ChatPage() {
                 <Users size={20} />
               </div>
             ) : (
-              <Avatar name={activeUser?.name || "Unknown"} size={40} />
+              <Avatar name={activeUser?.name || (activeChat === "group" ? "Team Chat" : "Unknown")} size={40} />
             )}
             <div>
               <h3 className="font-heading font-semibold text-slate-800 text-lg flex items-center gap-2">
-                {activeGroup ? activeGroup.name : activeUser?.name}
+                {activeGroup ? activeGroup.name : (activeUser?.name || (activeChat === "group" ? "Team Chat" : "Unknown"))}
                 {activeGroup && (user.role === "admin" || user.role === "admin_staff") && (
                   <button onClick={openEditGroup} className="text-slate-400 hover:text-emerald-600 transition-colors p-1" title="Group Settings">
                     <Settings size={16} />
@@ -328,7 +328,7 @@ export default function ChatPage() {
                 )}
               </h3>
               <p className="text-xs text-slate-500">
-                {activeGroup ? `${activeGroup.members.length} members` : ((activeUser?.role === "admin" || activeUser?.role === "admin_staff") ? "Admin" : (activeUser?.designation || "Staff"))}
+                {activeGroup ? `${activeGroup.members.length} members` : ((activeUser?.role === "admin" || activeUser?.role === "admin_staff") ? "Admin" : (activeUser?.designation || (activeChat === "group" ? "Everyone" : "Staff")))}
               </p>
             </div>
           </div>
@@ -338,7 +338,7 @@ export default function ChatPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ backgroundImage: 'url("https://web.whatsapp.com/img/bg-chat-tile-dark_a4be512e7195b6b733d9110b408f075d.png")', opacity: 0.9 }}>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4" style={{ backgroundColor: "#efeae2", backgroundImage: "radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px)", backgroundSize: "16px 16px" }}>
           {messages.length === 0 && (
             <div className="flex items-center justify-center h-full">
               <div className="bg-white/80 backdrop-blur-sm px-6 py-3 rounded-full text-sm text-slate-500 font-medium shadow-sm">

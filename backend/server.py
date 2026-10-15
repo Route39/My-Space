@@ -836,10 +836,12 @@ async def create_employee(body: EmployeeIn, user: dict = Depends(require_roles("
         "shift_id": body.shift_id, "location": body.location, 
         "work_mode": body.work_mode, "status": "Active",
     }
+    if not body.password or len(body.password) < 8:
+        raise HTTPException(400, "Password (min 8 characters) is required")
     await db.employees.insert_one(emp)
     await db.users.insert_one({
         "id": user_id, "org_id": user["org_id"], "email": email, "phone": body.phone,
-        "password_hash": hash_password(body.password or "password123"),
+        "password_hash": hash_password(body.password),
         "name": body.name, "role": body.role, "employee_id_ref": emp_id,
         "created_at": now_utc().isoformat(),
     })
@@ -907,10 +909,17 @@ async def update_my_profile(body: UserProfileUpdateIn, user: dict = Depends(get_
     updates = {}
     if body.name is not None:
         updates["name"] = body.name
+    is_admin = user.get("role") in ("admin", "admin_staff")
     if body.email is not None:
-        updates["email"] = body.email
+        new_email = body.email.lower().strip()
+        if new_email != (user.get("email") or "").lower():
+            if await db.users.find_one({"email": new_email, "id": {"$ne": user["id"]}}, {"_id": 1}):
+                raise HTTPException(status_code=409, detail="This email is already used by another account")
+        updates["email"] = new_email
     if body.password:
-        updates["password"] = hash_password(body.password)
+        if len(body.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        updates["password_hash"] = hash_password(body.password)
         
     if updates:
         await db.users.update_one({"id": user["id"]}, {"$set": updates})
@@ -921,24 +930,24 @@ async def update_my_profile(body: UserProfileUpdateIn, user: dict = Depends(get_
         if body.name is not None:
             emp_updates["name"] = body.name
         if body.email is not None:
-            emp_updates["email"] = body.email
+            emp_updates["email"] = updates["email"]
         if body.phone is not None:
             emp_updates["phone"] = body.phone
-        if body.department is not None:
+        if body.department is not None and is_admin:
             emp_updates["department"] = body.department
-        if body.designation is not None:
+        if body.designation is not None and is_admin:
             emp_updates["designation"] = body.designation
         if body.location is not None:
             emp_updates["location"] = body.location
         if body.joining_date is not None and user.get("role") in ("admin", "admin_staff"):
             emp_updates["joining_date"] = body.joining_date
-        if body.salary_type is not None:
+        if body.salary_type is not None and is_admin:
             emp_updates["salary_type"] = body.salary_type
 
         if emp_updates:
             await db.employees.update_one({"id": user["employee_id_ref"]}, {"$set": emp_updates})
             
-    return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
+    return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0, "password_hash": 0})
 
 
 
@@ -1134,9 +1143,10 @@ async def auto_checkout_loop():
 async def get_missed_checkouts(user: dict = Depends(require_roles("admin", "team_leader"))):
     await auto_fix_missing_checkouts(org_id=user["org_id"])
     records = await db.attendance.find({"org_id": user["org_id"], "auto_checkout": True}).sort("date", -1).to_list(100)
+    emp_ids = list({r["employee_id"] for r in records})
+    names = {e["id"]: e.get("name") async for e in db.employees.find({"id": {"$in": emp_ids}}, {"_id": 0, "id": 1, "name": 1})}
     for r in records:
-        emp = await db.employees.find_one({"id": r["employee_id"]})
-        r["employee_name"] = emp["name"] if emp else "Unknown"
+        r["employee_name"] = names.get(r["employee_id"]) or "Unknown"
     return records
 
 @api.get("/attendance/me")
@@ -2248,10 +2258,12 @@ async def get_chat_messages(recipient_id: str, user: dict = Depends(get_current_
     msgs = await db.chats.find(query).sort("created_at", -1).limit(50).to_list(None)
     msgs.reverse()
     
-    # Attach sender details
+    # Attach sender details (one query for all senders instead of one per message)
+    sender_ids = list({m["sender_id"] for m in msgs})
+    senders = {u["id"]: u async for u in db.users.find({"id": {"$in": sender_ids}}, {"_id": 0, "id": 1, "name": 1, "role": 1})}
     for m in msgs:
         m.pop("_id", None)
-        sender = await db.users.find_one({"id": m["sender_id"]})
+        sender = senders.get(m["sender_id"])
         if sender:
             m["sender_name"] = sender.get("name", "Unknown")
             m["sender_role"] = sender.get("role", "staff")
@@ -2405,26 +2417,63 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(','),
+    allow_origin_regex=os.environ.get('CORS_ORIGIN_REGEX', r'https://([a-z0-9-]+\.)?attendy\.in'),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@app.on_event("startup")
-async def startup():
-    # await db.users.create_index("email", unique=True)
+from contextlib import asynccontextmanager
+
+
+INDEXES = {
+    "users": [["org_id"], ["email"], ["phone"], ["employee_id_ref"]],
+    "employees": [["org_id"], ["user_id"]],
+    "attendance": [["employee_id", "date"], ["org_id", "date"], ["check_out"]],
+    "leaves": [["org_id", "status"], ["employee_id"]],
+    "leave_balances": [["employee_id"]],
+    "payroll": [["org_id", "month"], ["employee_id", "month"]],
+    "tasks": [["org_id"]],
+    "myspace_items": [["org_id"], ["owner_id"]],
+    "chats": [["org_id", "recipient_id", "created_at"], ["org_id", "sender_id"]],
+    "chat_groups": [["members"]],
+    "notifications": [["user_id"]],
+    "announcements": [["org_id"]],
+    "notices": [["org_id"]],
+    "activities": [["org_id"]],
+}
+for _c in ["users", "employees", "attendance", "tasks", "myspace_items", "myspace_files", "payroll", "shifts",
+           "leaves", "leave_balances", "chats", "chat_groups", "notifications", "announcements", "notices",
+           "activities", "departments", "designations", "locations", "companies"]:
+    INDEXES.setdefault(_c, []).insert(0, ["id"])
+
+
+async def ensure_indexes():
+    """Create MongoDB indexes on startup. Safe to run every time (no-op if they exist)."""
+    log = logging.getLogger(__name__)
+    ok = failed = 0
+    for c, keys in INDEXES.items():
+        for k in keys:
+            try:
+                await db[c].create_index([(f, 1) for f in k])
+                ok += 1
+            except Exception as e:
+                failed += 1
+                log.warning(f"index {c}{k} skipped: {e}")
+    log.info(f"indexes ensured: {ok} ok, {failed} skipped")
+
+
+@asynccontextmanager
+async def lifespan(app):
+    import asyncio
     from seed import seed_all
     await seed_all(db)
     await run_migrations()
-
-
-@app.on_event("shutdown")
-async def shutdown():
+    await ensure_indexes()
+    app.state.auto_checkout_task = asyncio.create_task(auto_checkout_loop())
+    yield
+    app.state.auto_checkout_task.cancel()
     client.close()
 
-
-@app.on_event("startup")
-async def _start_auto_checkout_task():
-    import asyncio
-    app.state.auto_checkout_task = asyncio.create_task(auto_checkout_loop())
+app.router.lifespan_context = lifespan

@@ -32,7 +32,6 @@ export default function Login() {
     setBusy(false);
   };
 
-  const quick = (em) => { setEmail(em); setPassword(em === "support@route39.in" ? "admin123" : "password123"); };
 
   return (
     <div className="min-h-screen bg-[#F6F8FA] flex flex-col lg:flex-row">

@@ -71,7 +71,7 @@ export default function Staff() {
               <div className="col-span-2"><Label>Full name</Label><Input data-testid="staff-name" className="rounded-xl mt-1" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div><Label>Email (Optional)</Label><Input data-testid="staff-email" className="rounded-xl mt-1" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
               <div><Label>Username / Phone</Label><Input className="rounded-xl mt-1" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-              <div className="col-span-2"><Label>Password</Label><Input type="text" placeholder="Set staff password (defaults to password123)" className="rounded-xl mt-1" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><p className="text-xs text-slate-500 mt-1">If left blank, the staff can log in using <b>password123</b></p></div>
+              <div className="col-span-2"><Label>Password</Label><Input type="text" placeholder="Set staff password (min 8 characters)" className="rounded-xl mt-1" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><p className="text-xs text-slate-500 mt-1">Required. Share this password with the staff member securely.</p></div>
               <div><Label>Department</Label>
                 <Select value={form.department} onValueChange={(v) => setForm({ ...form, department: v })}>
                   <SelectTrigger className="rounded-xl mt-1" data-testid="staff-department"><SelectValue placeholder="Select" /></SelectTrigger>

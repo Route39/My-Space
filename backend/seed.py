@@ -2,6 +2,10 @@ import uuid
 import bcrypt
 from datetime import datetime, timezone, timedelta, date
 import random
+import os
+import secrets
+
+DEMO_PW = os.environ.get("DEMO_PASSWORD") or secrets.token_urlsafe(12)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -52,7 +56,7 @@ async def seed_all(db):
     await db.shifts.insert_many([shift, night, perm])
 
     admin_email = os.environ.get("ADMIN_EMAIL", "support@route39.in")
-    admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_pw = os.environ["ADMIN_PASSWORD"]
 
     # admin employee + user
     admin_emp_id = uid()
@@ -91,7 +95,7 @@ async def seed_all(db):
         })
         await db.users.insert_one({
             "id": user_id, "org_id": org_id, "email": email,
-            "password_hash": hp("password123"), "name": name, "role": "team_leader",
+            "password_hash": hp(DEMO_PW), "name": name, "role": "team_leader",
             "employee_id_ref": emp_id, "created_at": now().isoformat(),
         })
         await db.leave_balances.insert_one({"id": uid(), "org_id": org_id, "employee_id": emp_id,
@@ -125,7 +129,7 @@ async def seed_all(db):
         })
         await db.users.insert_one({
             "id": user_id, "org_id": org_id, "email": email,
-            "password_hash": hp("password123"), "name": name, "role": "staff",
+            "password_hash": hp(DEMO_PW), "name": name, "role": "staff",
             "employee_id_ref": emp_id, "created_at": now().isoformat(),
         })
         await db.leave_balances.insert_one({"id": uid(), "org_id": org_id, "employee_id": emp_id,
