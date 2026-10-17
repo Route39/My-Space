@@ -449,7 +449,7 @@ function PlatformHome() {
   useEffect(() => { load(); }, []);
   const toggle = async (c) => { await api.put(`/platform/companies/${c.id}/status`, { active: !(c.active ?? true) }); load(); };
   return (
-    <div className="rounded-2xl bg-white border border-slate-200 p-5">
+    <div className="rounded-2xl bg-white border border-slate-200 p-5 overflow-x-auto">
       <p className="font-heading font-bold text-lg mb-4">Platform · Companies ({rows.length})</p>
       <table className="w-full text-sm">
         <thead><tr className="text-left text-slate-500 text-xs"><th className="py-2">Company</th><th>Slug</th><th>Employees</th><th>Users</th><th>Status</th></tr></thead>

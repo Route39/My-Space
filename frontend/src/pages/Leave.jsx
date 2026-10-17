@@ -160,7 +160,7 @@ function StaffLeave() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <div className="rounded-2xl bg-white border border-slate-200 p-5"><p className="text-sm text-slate-400">Available</p><p className="font-heading text-3xl font-bold text-emerald-600 mt-1">{available}</p></div>
         <div className="rounded-2xl bg-white border border-slate-200 p-5"><p className="text-sm text-slate-400">Used</p><p className="font-heading text-3xl font-bold text-slate-700 mt-1">{used}</p></div>
         <div className="rounded-2xl bg-white border border-slate-200 p-5"><p className="text-sm text-slate-400">Pending</p><p className="font-heading text-3xl font-bold text-amber-600 mt-1">{pending}</p></div>

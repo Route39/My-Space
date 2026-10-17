@@ -93,3 +93,4 @@ frontend/node_modules/.cache/default-development/0.pack
 *.bak_*
 *.before-*
 src_backup_before_mobile_fix/
+*.bak-resp

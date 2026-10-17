@@ -203,7 +203,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
         </div>
 
         <div className="mt-4 grid md:grid-cols-2 gap-4 items-start">
-          <div className="border border-emerald-100 rounded-lg overflow-hidden">
+          <div className="border border-emerald-100 rounded-lg overflow-x-auto">
             {head(Wallet, "Earnings / Salary Components")}
             <table className="w-full text-xs">
               <thead><tr className="bg-emerald-50 font-semibold"><td className="px-3 py-1.5">Description</td><td className="px-3 py-1.5 text-right">Amount (₹)</td></tr></thead>
@@ -222,7 +222,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
             </table>
           </div>
           <div>
-            <div className="border border-emerald-100 rounded-lg overflow-hidden">
+            <div className="border border-emerald-100 rounded-lg overflow-x-auto">
               {head(MinusCircle, "Deductions")}
               <table className="w-full text-xs">
                 <thead><tr className="bg-emerald-50 font-semibold"><td className="px-3 py-1.5">Description</td><td className="px-3 py-1.5 text-right">Amount (₹)</td></tr></thead>

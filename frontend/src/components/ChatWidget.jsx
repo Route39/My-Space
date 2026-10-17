@@ -154,7 +154,7 @@ export default function ChatWidget() {
       </button>
 
       {open && (
-        <div className="fixed bottom-6 right-6 w-[360px] h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden border border-slate-200 flex-col animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-24 md:bottom-6 right-3 md:right-6 w-[calc(100vw-1.5rem)] sm:w-[360px] h-[70vh] sm:h-[500px] max-h-[calc(100vh-7rem)] bg-white rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden border border-slate-200 flex-col animate-in slide-in-from-bottom-5">
           <div className="h-14 bg-emerald-600 px-4 flex items-center justify-between text-white shadow-md z-10">
             <div className="flex items-center gap-2">
               <MessageCircle size={20} />

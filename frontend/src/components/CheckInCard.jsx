@@ -112,7 +112,7 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
             </div>
             <div>
               <p className="text-slate-400 text-xs">{done ? "Check Out" : "Shift End"}</p>
-              <p className="font-medium">{done ? timeStr(today.check_out) : (shift ? formatTime(shift.end_time) : "—")}</p>
+              <p className="font-medium">{done ? timeStr(today.check_out) : "—"}</p>
             </div>
           </div>
         </div>

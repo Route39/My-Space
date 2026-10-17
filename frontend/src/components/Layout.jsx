@@ -284,7 +284,7 @@ export default function Layout({ children }) {
   const { user, employee, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [collapsed, setCollapsed] = useState(localStorage.getItem("myspace_collapsed") === "1");
+  const [collapsed, setCollapsed] = useState(localStorage.getItem("myspace_collapsed") === "1" || window.innerWidth < 1024);
   const [unreadChat, setUnreadChat] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
   const isFirstLoadRef = useRef(true);
@@ -371,7 +371,7 @@ export default function Layout({ children }) {
               key={item.label}
               to={item.to}
               end={item.to === "/"}
-              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 mx-3 rounded-xl transition-all duration-200 group relative ${isActive ? "bg-emerald-50 text-emerald-600 font-medium" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${isActive ? "bg-emerald-50 text-emerald-600 font-medium" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
             >
               <item.icon className="w-5 h-5 shrink-0" strokeWidth={1.75} />
               {!collapsed && <span>{item.label}</span>}
@@ -400,7 +400,7 @@ export default function Layout({ children }) {
         </div>
       </aside>
 
-      <div className={`${pad} transition-all duration-300`}>
+      <div className={`${pad} min-w-0 transition-all duration-300`}>
         <header className="sticky top-0 z-20 backdrop-blur-xl bg-white/75 border-b border-slate-200">
           <div className="flex items-center justify-between px-4 md:px-8 h-16">
             <div className="flex items-center gap-2">
@@ -426,7 +426,7 @@ export default function Layout({ children }) {
           </div>
         </header>
 
-        <main className="px-4 md:px-8 py-6 pb-28 md:pb-10 max-w-[1200px] mx-auto fade-in" key={location.pathname}>{children}</main>
+        <main className="px-4 md:px-8 py-6 pb-28 md:pb-10 max-w-[1200px] d1440:max-w-[1360px] d1920:max-w-[1600px] mx-auto fade-in" key={location.pathname}>{children}</main>
       </div>
 
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 backdrop-blur-xl bg-white/90 border-t border-slate-200">

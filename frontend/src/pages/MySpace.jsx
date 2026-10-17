@@ -334,7 +334,7 @@ function ReminderEditor({ f, set }) {
   return (
     <div className="space-y-3">
       <textarea placeholder="Description" value={f.content} onChange={(e) => set("content", e.target.value)} className="w-full rounded-xl border border-slate-200 p-3 text-sm min-h-[70px] focus:outline-none focus:ring-2 focus:ring-emerald-200" />
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div><Label className="text-xs">Date</Label><Input type="date" data-testid="reminder-date" value={f.reminder_date} onChange={(e) => set("reminder_date", e.target.value)} className="rounded-xl mt-1" /></div>
         <div><Label className="text-xs">Time</Label><Input type="time" data-testid="reminder-time" value={f.reminder_time} onChange={(e) => set("reminder_time", e.target.value)} className="rounded-xl mt-1" /></div>
         <div><Label className="text-xs">Repeat</Label>

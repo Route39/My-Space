@@ -7,6 +7,7 @@ module.exports = {
   ],
   theme: {
     extend: {
+      screens: { 'm320':'320px','m375':'375px','m425':'425px','t992':'992px','d1200':'1200px','d1360':'1360px','d1440':'1440px','d1540':'1540px','d1600':'1600px','d1920':'1920px' },
       fontFamily: {
         heading: ['Outfit', 'sans-serif'],
         sans: ['Figtree', 'sans-serif'],
