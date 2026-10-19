@@ -1060,19 +1060,15 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
     targets = []
     if (company.get("geofence_enabled") and (emp.get("work_mode") or "Office") in GEOFENCED_WORK_MODES
             and (emp.get("location") or "").strip().lower() != "remote"):
-        city = (emp.get("location") or "").strip()
-        if not city:
-            raise HTTPException(status_code=400, detail="Your office location is not set in your profile. Please contact admin.")
-        loc = await db.locations.find_one(
-            {"org_id": user["org_id"], "name": {"$regex": f"^{re.escape(city)}$", "$options": "i"}}, {"_id": 0})
-        if not loc:
-            loc = await db.locations.find_one(
-                {"org_id": user["org_id"], "name": {"$regex": re.escape(city), "$options": "i"}}, {"_id": 0})
-        if loc:
+        # Fetch all registered office locations for the company so staff can punch at any office/hub they visit
+        all_locs = await db.locations.find({"org_id": user["org_id"]}, {"_id": 0}).to_list(100)
+        
+        # Build targets across all company offices and hubs
+        for loc in all_locs:
             rad = loc.get("radius_m") or DEFAULT_OFFICE_RADIUS_M
             # Main office
             if loc.get("lat") is not None and loc.get("lng") is not None:
-                targets.append({"name": loc.get("name", "Main Office"), "kind": "office",
+                targets.append({"name": loc.get("name", "Office"), "kind": "office",
                                 "lat": loc["lat"], "lng": loc["lng"], "radius": rad})
             # Additional offices / branches
             for b in loc.get("branches") or []:
@@ -1090,12 +1086,13 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
                     h_name = h.get("name") or "Hub"
                     targets.append({"name": f"{loc['name']} ({h_name})", "kind": "hub",
                                     "lat": h["lat"], "lng": h["lng"], "radius": h.get("radius_m") or rad})
+
         if not targets:
-            raise HTTPException(status_code=400, detail=f"GPS coordinates for '{city}' are not configured yet. Please contact admin to configure office coordinates.")
+            raise HTTPException(status_code=400, detail="No office GPS coordinates have been configured in Settings yet. Please contact admin.")
 
     if targets:
         if body is None or body.lat is None or body.lng is None:
-            raise HTTPException(status_code=400, detail="Location not received. Allow location access in your browser and try again.")
+            raise HTTPException(status_code=400, detail="Location not received. Allow location access on your device and try again.")
         if body.accuracy is not None and body.accuracy > MAX_GPS_ACCURACY_M:
             raise HTTPException(status_code=400, detail="Your location is not accurate enough. Turn on GPS / Wi-Fi and try again.")
         measured = [(haversine_m(body.lat, body.lng, t["lat"], t["lng"]), t) for t in targets]
