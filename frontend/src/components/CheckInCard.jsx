@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LogIn, LogOut, CheckCircle2, Sun } from "lucide-react";
+import { LogIn, LogOut, CheckCircle2, Sun, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { timeStr } from "@/lib/format";
@@ -23,14 +23,58 @@ function shiftHours(shift) {
 
 function getPosition() {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new Error("unsupported"));
-    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    if (!navigator.geolocation) {
+      return reject(new Error("Location is not supported on this device/browser"));
+    }
+
+    const requestCoordinates = () => {
+      // 1. High-accuracy GPS first (10s timeout)
+      navigator.geolocation.getCurrentPosition(
+        resolve,
+        (err) => {
+          // If GPS times out indoors on Android/iOS APK, fallback to network/Wi-Fi positioning
+          if (err.code === 3 /* TIMEOUT */ || err.code === 2 /* POSITION_UNAVAILABLE */) {
+            navigator.geolocation.getCurrentPosition(
+              resolve,
+              (fallbackErr) => {
+                const msg = fallbackErr.code === 1
+                  ? "Location permission is off. Please tap 'Allow' when your device asks for location permission."
+                  : fallbackErr.code === 3
+                  ? "Location request timed out. Please turn on GPS / Wi-Fi and try again."
+                  : "Unable to retrieve device location. Turn on location services in device settings.";
+                reject(new Error(msg));
+              },
+              { enableHighAccuracy: false, timeout: 10000, maximumAge: 30000 }
+            );
+          } else if (err.code === 1 /* PERMISSION_DENIED */) {
+            reject(new Error("Location permission denied. Please allow location access in your device settings to check in."));
+          } else {
+            reject(err);
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    };
+
+    // Pre-check permission status if supported by modern Android WebViews
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: "geolocation" }).then((result) => {
+        if (result.state === "denied") {
+          reject(new Error("Location access is blocked. Please open app info in device settings and enable Location."));
+        } else {
+          requestCoordinates();
+        }
+      }).catch(() => requestCoordinates());
+    } else {
+      requestCoordinates();
+    }
   });
 }
 
 export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) {
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [statusText, setStatusText] = useState("");
   const [celebrate, setCelebrate] = useState(false);
 
   useEffect(() => {
@@ -44,17 +88,31 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
 
   const doCheckIn = async () => {
     setBusy(true);
+    setStatusText("Getting GPS…");
+    let locError = null;
     try {
       let loc = {};
       try {
         const pos = await getPosition();
         loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
-      } catch (_) { /* the server decides whether location is required */ }
-      await api.post("/attendance/checkin", loc);
-      toast.success("Checked in successfully"); onChange && onChange();
+      } catch (err) {
+        locError = err.message;
+        toast.error(locError);
+        return;
+      }
+      setStatusText("Checking in…");
+      const { data } = await api.post("/attendance/checkin", loc);
+      toast.success(data?.check_in_office ? `Checked in at ${data.check_in_office}` : "Checked in successfully");
+      onChange && onChange();
     }
-    catch (e) { toast.error(e.response?.data?.detail || "Check-in failed"); }
-    setBusy(false);
+    catch (e) {
+      const serverMsg = e.response?.data?.detail;
+      toast.error(serverMsg || locError || "Check-in failed");
+    }
+    finally {
+      setBusy(false);
+      setStatusText("");
+    }
   };
   const doCheckOut = async () => {
     setBusy(true);
@@ -97,9 +155,17 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
               <p className="text-sm text-slate-300">Worked today</p>
             </div>
           ) : checkedIn ? (
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" />
-              <span className="text-sm text-emerald-300 font-medium">Working now</span>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" />
+                <span className="text-sm text-emerald-300 font-medium">Working now</span>
+              </div>
+              {today?.check_in_office && (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-300 bg-white/10 rounded-lg px-2 py-0.5 w-fit">
+                  <MapPin className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>{today.check_in_office}{today.check_in_distance_m !== undefined && today.check_in_distance_m !== null ? ` (${today.check_in_distance_m}m)` : ""}</span>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-slate-300">You haven't checked in yet today.</p>
@@ -135,7 +201,7 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
         ) : (
           <button onClick={doCheckIn} disabled={busy} data-testid="check-in-btn"
             className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-heading font-semibold text-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-60 active:scale-[.99]">
-            <LogIn className="w-5 h-5" /> Check In
+            <LogIn className="w-5 h-5" /> {statusText || "Check In"}
           </button>
         )}
       </div>

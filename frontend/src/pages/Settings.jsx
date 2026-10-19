@@ -157,52 +157,82 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
   useEffect(() => {
     const m = {};
     locs.forEach((l) => {
-      m[l.id] = { address: l.address ?? "", lat: l.lat ?? "", lng: l.lng ?? "", radius_m: l.radius_m ?? 150,
-                  hub_address: l.hub_address ?? "", hub_lat: l.hub_lat ?? "", hub_lng: l.hub_lng ?? "" };
+      m[l.id] = {
+        address: l.address ?? "",
+        lat: l.lat ?? "",
+        lng: l.lng ?? "",
+        radius_m: l.radius_m ?? 150,
+        branches: l.branches || [],
+        hubs: l.hubs || [],
+      };
     });
     setRows(m);
   }, [locs]);
 
   const setRow = (id, patch) => setRows((r) => ({ ...r, [id]: { ...r[id], ...patch } }));
-  const setBusyFor = (id, v) => setBusy((b) => ({ ...b, [id]: v }));
+  const setBusyFor = (k, v) => setBusy((b) => ({ ...b, [k]: v }));
 
-  // field names for each kind: [address, lat, lng]
-  const FIELDS = { office: ["address", "lat", "lng"], hub: ["hub_address", "hub_lat", "hub_lng"] };
-  const bk = (id, kind) => (kind === "hub" ? `${id}:hub` : id);
-
-  // typed text -> suggestions list (waits 400ms after typing stops)
-  const suggest = (id, text, kind = "office") => {
-    const k = bk(id, kind);
-    clearTimeout(timers.current[k]);
+  const suggest = (key, text) => {
+    clearTimeout(timers.current[key]);
     const t = (text || "").trim();
     if (t.length < 3 || /^https?:/i.test(t) || /^-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+$/.test(t)) {
-      setSugg((s) => ({ ...s, [k]: [] }));
+      setSugg((s) => ({ ...s, [key]: [] }));
       return;
     }
-    timers.current[k] = setTimeout(async () => {
+    timers.current[key] = setTimeout(async () => {
       try {
         const { data } = await api.post("/locations/suggest", { query: t });
-        setSugg((s) => ({ ...s, [k]: data }));
-      } catch (_) { setSugg((s) => ({ ...s, [k]: [] })); }
+        setSugg((s) => ({ ...s, [key]: data }));
+      } catch (_) { setSugg((s) => ({ ...s, [key]: [] })); }
     }, 400);
   };
 
-  // user clicked a suggestion
-  const pick = async (id, s, kind = "office") => {
-    const k = bk(id, kind);
-    const [fa, fl, fn] = FIELDS[kind];
-    setSugg((x) => ({ ...x, [k]: [] }));
+  const pickLocation = async (key, s, onSelect) => {
+    setSugg((x) => ({ ...x, [key]: [] }));
     if (s.lat != null && s.lng != null) {
-      setRow(id, { [fa]: s.description, [fl]: s.lat, [fn]: s.lng });
+      onSelect(s.description, s.lat, s.lng);
       return;
     }
-    setRow(id, { [fa]: s.description, [fl]: "", [fn]: "" });
-    setBusyFor(k, true);
+    onSelect(s.description, "", "");
+    setBusyFor(key, true);
     try {
       const { data } = await api.post("/locations/place-details", { place_id: s.place_id });
-      setRow(id, { [fa]: data.address || s.description, [fl]: data.lat, [fn]: data.lng });
+      onSelect(data.address || s.description, data.lat, data.lng);
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
-    setBusyFor(k, false);
+    setBusyFor(key, false);
+  };
+
+  const findCoords = (key, address, onResult) => {
+    const addr = (address || "").trim();
+    if (addr.length < 5) return Promise.resolve(null);
+    if (inflight.current[key]) return inflight.current[key];
+    setBusyFor(key, true);
+    const p = api.post("/locations/geocode", { address: addr })
+      .then(({ data }) => { onResult(data.lat, data.lng); return data; })
+      .catch((e) => { onResult("", ""); toast.error(apiErr(e.response?.data?.detail)); return null; })
+      .finally(() => { delete inflight.current[key]; setBusyFor(key, false); });
+    inflight.current[key] = p;
+    return p;
+  };
+
+  const here = (onResult) => {
+    if (!navigator.geolocation) { toast.error("Location not supported in this browser"); return; }
+    const toastId = toast.loading("Detecting current GPS coordinates…");
+    navigator.geolocation.getCurrentPosition(
+      async (p) => {
+        const lat = p.coords.latitude, lng = p.coords.longitude;
+        try {
+          const { data } = await api.post("/locations/reverse", { lat, lng });
+          onResult(data.address, lat, lng);
+          toast.success("GPS location and address detected", { id: toastId });
+        } catch (_) {
+          onResult("", lat, lng);
+          toast.message("GPS coordinates updated.", { id: toastId });
+        }
+      },
+      () => toast.error("Could not read GPS location. Allow location permissions.", { id: toastId }),
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
   };
 
   const addCity = async () => {
@@ -214,7 +244,7 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
     setSavingCity(true);
     try {
       await api.post("/locations", { name });
-      toast.success("City added");
+      toast.success(`Location "${name}" added`);
       setNewCity(""); setShowAdd(false);
       reload();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
@@ -222,10 +252,10 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
   };
 
   const deleteCity = async (loc) => {
-    if (!window.confirm(`Delete "${loc.name}" and its office/hub location?`)) return;
+    if (!window.confirm(`Delete "${loc.name}" and all its office/hub geofences?`)) return;
     try {
       await api.delete(`/locations/${loc.id}`);
-      toast.success("City deleted");
+      toast.success(`"${loc.name}" deleted`);
       reload();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
   };
@@ -234,210 +264,588 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
     try {
       const { data } = await api.put("/company", { geofence_enabled: checked });
       setCompany(data);
-      toast.success(checked ? "Office-only check-in is ON" : "Office-only check-in is OFF");
+      toast.success(checked ? "Physical Office Entry Geofence is ACTIVE" : "Office Geofence is OFF");
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
-  };
-
-  // address -> latitude/longitude (shares one request if it is already running)
-  const findCoords = (id, address, kind = "office") => {
-    const [, fl, fn] = FIELDS[kind];
-    const k = bk(id, kind);
-    const addr = (address || "").trim();
-    if (addr.length < 5) return Promise.resolve(null);
-    const key = `${k}|${addr}`;
-    if (inflight.current[key]) return inflight.current[key];
-    setBusyFor(k, true);
-    const p = api.post("/locations/geocode", { address: addr })
-      .then(({ data }) => { setRow(id, { [fl]: data.lat, [fn]: data.lng }); return data; })
-      .catch((e) => { setRow(id, { [fl]: "", [fn]: "" }); toast.error(apiErr(e.response?.data?.detail)); return null; })
-      .finally(() => { delete inflight.current[key]; setBusyFor(k, false); });
-    inflight.current[key] = p;
-    return p;
-  };
-
-  const here = (id, kind = "office") => {
-    const [fa, fl, fn] = FIELDS[kind];
-    if (!navigator.geolocation) { toast.error("Location not supported in this browser"); return; }
-    navigator.geolocation.getCurrentPosition(
-      async (p) => {
-        const lat = p.coords.latitude, lng = p.coords.longitude;
-        setRow(id, { [fl]: lat, [fn]: lng });
-        try {
-          const { data } = await api.post("/locations/reverse", { lat, lng });
-          setRow(id, { [fa]: data.address });
-        } catch (_) {
-          setRow(id, { [fa]: "" });
-          toast.message("Location set, but the address could not be found. Type the address if you want it saved.");
-        }
-      },
-      () => toast.error("Could not get your location. Allow location access."),
-      { enableHighAccuracy: true, timeout: 15000 }
-    );
   };
 
   const save = async (id) => {
     const r = rows[id];
-    let lat = r.lat, lng = r.lng, hlat = r.hub_lat, hlng = r.hub_lng;
+    let lat = r.lat, lng = r.lng;
     if ((r.address || "").trim() && (lat === "" || lng === "")) {
-      const found = await findCoords(id, r.address, "office");
-      if (!found) return;
-      lat = found.lat; lng = found.lng;
+      const found = await findCoords(`${id}:main`, r.address, (la, ln) => { lat = la; lng = ln; });
+      if (found) { lat = found.lat; lng = found.lng; }
     }
-    if ((r.hub_address || "").trim() && (hlat === "" || hlng === "")) {
-      const foundH = await findCoords(id, r.hub_address, "hub");
-      if (!foundH) return;
-      hlat = foundH.lat; hlng = foundH.lng;
+    if (!lat || !lng) {
+      toast.error("Please configure the Main Office GPS coordinates first.");
+      return;
     }
     try {
       await api.put(`/locations/${id}/geo`, {
         address: (r.address || "").trim(),
-        lat: lat === "" ? null : Number(lat),
-        lng: lng === "" ? null : Number(lng),
+        lat: Number(lat),
+        lng: Number(lng),
         radius_m: Number(r.radius_m) || 150,
-        hub_address: (r.hub_address || "").trim(),
-        hub_lat: hlat === "" ? null : Number(hlat),
-        hub_lng: hlng === "" ? null : Number(hlng),
+        branches: (r.branches || []).map((b) => ({
+          name: (b.name || "Office").trim(),
+          address: (b.address || "").trim(),
+          lat: b.lat === "" || b.lat == null ? null : Number(b.lat),
+          lng: b.lng === "" || b.lng == null ? null : Number(b.lng),
+          radius_m: Number(b.radius_m) || 150,
+        })),
+        hubs: (r.hubs || []).map((h) => ({
+          name: (h.name || "Hub").trim(),
+          address: (h.address || "").trim(),
+          lat: h.lat === "" || h.lat == null ? null : Number(h.lat),
+          lng: h.lng === "" || h.lng == null ? null : Number(h.lng),
+          radius_m: Number(h.radius_m) || 150,
+        })),
       });
-      toast.success("Office location saved"); reload();
+      toast.success("Office & Hub Geofences saved successfully!");
+      reload();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
   };
 
-  return (
-    <div className="rounded-2xl bg-white border border-slate-200 p-5">
-      <p className="font-heading font-semibold text-slate-800">Office check-in (by city)</p>
-      <label className="flex items-center gap-2 text-sm text-slate-700 mt-2">
-        <input type="checkbox" checked={!!company.geofence_enabled} onChange={(e) => toggle(e.target.checked)} />
-        Allow check-in only at the employee's city office
-      </label>
-      <p className="text-xs text-slate-500 mt-2 mb-3">
-        Enter each office's full address. Latitude and longitude are filled in automatically. Staff with Work Mode "Office" must be
-        within the radius of their city's office. Staff whose location is "Remote" can check in from anywhere.
-      </p>
-      <div className="space-y-3">
-        {cities.map((l) => rows[l.id] && (
-          <div key={l.id} className="rounded-xl border border-slate-100 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-slate-800">{l.name}</span>
-              <div className="flex items-center gap-4">
-                {rows[l.id].lat !== "" && rows[l.id].lng !== "" && (
-                  <a href={`https://www.google.com/maps?q=${rows[l.id].lat},${rows[l.id].lng}`} target="_blank" rel="noreferrer"
-                     className="text-xs text-emerald-600 hover:underline">View on map ↗</a>
-                )}
-                <button type="button" onClick={() => deleteCity(l)} title="Delete city"
-                  className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-500">
-                  <Trash2 className="w-4 h-4" /> Delete
-                </button>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div className="md:col-span-2 relative">
-                <Label className="text-xs">Office address/Latitude,Longitude</Label>
-                <Input className="rounded-xl mt-1" placeholder="Building, street, area, city, pincode" value={rows[l.id].address}
-                  autoComplete="off"
-                  onChange={(e) => { setRow(l.id, { address: e.target.value, lat: "", lng: "" }); suggest(l.id, e.target.value); }}
-                  onBlur={() => {
-                    setTimeout(() => setSugg((s) => ({ ...s, [l.id]: [] })), 150);
-                    if (rows[l.id].lat === "") findCoords(l.id, rows[l.id].address);
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && findCoords(l.id, rows[l.id].address)} />
-                {(sugg[l.id] || []).length > 0 && (
-                  <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-auto">
-                    {sugg[l.id].map((s, i) => (
-                      <li key={s.place_id || i}
-                          onMouseDown={(e) => { e.preventDefault(); pick(l.id, s); }}
-                          className="px-3 py-2 text-sm text-slate-700 hover:bg-emerald-50 cursor-pointer border-b border-slate-50 last:border-0">
-                        {s.description}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div>
-                <Label className="text-xs">Latitude</Label>
-                <Input readOnly tabIndex={-1} className="rounded-xl mt-1 bg-slate-50 text-slate-600 cursor-not-allowed"
-                  placeholder={busy[l.id] ? "Finding…" : "Auto"}
-                  value={rows[l.id].lat === "" ? "" : Number(rows[l.id].lat).toFixed(6)} />
-              </div>
-              <div>
-                <Label className="text-xs">Longitude</Label>
-                <Input readOnly tabIndex={-1} className="rounded-xl mt-1 bg-slate-50 text-slate-600 cursor-not-allowed"
-                  placeholder={busy[l.id] ? "Finding…" : "Auto"}
-                  value={rows[l.id].lng === "" ? "" : Number(rows[l.id].lng).toFixed(6)} />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div className="md:col-span-2 relative">
-                <Label className="text-xs">Hub location/Latitude,Longitude</Label>
-                <Input className="rounded-xl mt-1" placeholder="Hub building, street, area, city, pincode (optional)" value={rows[l.id].hub_address}
-                  autoComplete="off"
-                  onChange={(e) => { setRow(l.id, { hub_address: e.target.value, hub_lat: "", hub_lng: "" }); suggest(l.id, e.target.value, "hub"); }}
-                  onBlur={() => {
-                    setTimeout(() => setSugg((s) => ({ ...s, [`${l.id}:hub`]: [] })), 150);
-                    if (rows[l.id].hub_lat === "") findCoords(l.id, rows[l.id].hub_address, "hub");
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && findCoords(l.id, rows[l.id].hub_address, "hub")} />
-                {(sugg[`${l.id}:hub`] || []).length > 0 && (
-                  <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-auto">
-                    {sugg[`${l.id}:hub`].map((s, i) => (
-                      <li key={s.place_id || i}
-                          onMouseDown={(e) => { e.preventDefault(); pick(l.id, s, "hub"); }}
-                          className="px-3 py-2 text-sm text-slate-700 hover:bg-emerald-50 cursor-pointer border-b border-slate-50 last:border-0">
-                        {s.description}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div>
-                <Label className="text-xs">Latitude</Label>
-                <Input readOnly tabIndex={-1} className="rounded-xl mt-1 bg-slate-50 text-slate-600 cursor-not-allowed"
-                  placeholder={busy[`${l.id}:hub`] ? "Finding…" : "Auto"}
-                  value={rows[l.id].hub_lat === "" ? "" : Number(rows[l.id].hub_lat).toFixed(6)} />
-              </div>
-              <div>
-                <Label className="text-xs">Longitude</Label>
-                <Input readOnly tabIndex={-1} className="rounded-xl mt-1 bg-slate-50 text-slate-600 cursor-not-allowed"
-                  placeholder={busy[`${l.id}:hub`] ? "Finding…" : "Auto"}
-                  value={rows[l.id].hub_lng === "" ? "" : Number(rows[l.id].hub_lng).toFixed(6)} />
-              </div>
-            </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="w-40">
-                <Label className="text-xs">Radius (m)</Label>
-                <Input type="number" className="rounded-xl mt-1" value={rows[l.id].radius_m}
-                  onChange={(e) => setRow(l.id, { radius_m: e.target.value })} />
-              </div>
-              <Button type="button" variant="outline" className="rounded-xl" onClick={() => here(l.id)}>Use my location (office)</Button>
-              <Button type="button" variant="outline" className="rounded-xl" onClick={() => here(l.id, "hub")}>Use my location (hub)</Button>
-              <Button type="button" disabled={busy[l.id] || busy[`${l.id}:hub`]} className="rounded-xl bg-emerald-600 hover:bg-emerald-700 ml-auto"
-                onClick={() => save(l.id)}>Save</Button>
-            </div>
-          </div>
-        ))}
-        {cities.length === 0 && <p className="text-sm text-slate-400">No cities yet. Click "+ Add" to add your first city.</p>}
+  // Helpers to add additional offices or hubs
+  const addBranch = (locId) => {
+    const current = rows[locId]?.branches || [];
+    setRow(locId, {
+      branches: [...current, { name: `Branch ${current.length + 2}`, address: "", lat: "", lng: "", radius_m: 150 }]
+    });
+  };
 
-        {showAdd ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 flex flex-wrap items-end gap-3">
-            <div className="flex-1 min-w-[220px]">
-              <Label className="text-xs">Enter city</Label>
-              <Input className="rounded-xl mt-1 bg-white" placeholder="e.g. Coimbatore" autoFocus value={newCity}
-                onChange={(e) => setNewCity(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") addCity(); if (e.key === "Escape") { setShowAdd(false); setNewCity(""); } }} />
-            </div>
-            <Button type="button" disabled={savingCity} onClick={addCity} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">
-              <Save className="w-4 h-4 mr-2" /> Save
+  const removeBranch = (locId, idx) => {
+    const current = [...(rows[locId]?.branches || [])];
+    current.splice(idx, 1);
+    setRow(locId, { branches: current });
+  };
+
+  const updateBranch = (locId, idx, patch) => {
+    const current = [...(rows[locId]?.branches || [])];
+    current[idx] = { ...current[idx], ...patch };
+    setRow(locId, { branches: current });
+  };
+
+  const addHub = (locId) => {
+    const current = rows[locId]?.hubs || [];
+    setRow(locId, {
+      hubs: [...current, { name: `Hub ${current.length + 1}`, address: "", lat: "", lng: "", radius_m: 150 }]
+    });
+  };
+
+  const removeHub = (locId, idx) => {
+    const current = [...(rows[locId]?.hubs || [])];
+    current.splice(idx, 1);
+    setRow(locId, { hubs: current });
+  };
+
+  const updateHub = (locId, idx, patch) => {
+    const current = [...(rows[locId]?.hubs || [])];
+    current[idx] = { ...current[idx], ...patch };
+    setRow(locId, { hubs: current });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Executive Clean Header with Toggle */}
+      <div className="rounded-2xl bg-white border border-slate-200/80 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900 font-heading">
+              Biometric-Grade Physical Entry Check-in
+            </h2>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live Google Maps Verified
+            </span>
+          </div>
+          <p className="text-sm text-slate-500 max-w-2xl">
+            Just like punching a physical biometric machine at the entrance, employees can <strong>only check in after physically stepping inside</strong> their assigned office or authorized hubs.
+          </p>
+        </div>
+
+        {/* Big Clean Toggle */}
+        <div className="flex items-center gap-4 bg-slate-50 border border-slate-200/80 px-5 py-3 rounded-2xl">
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Geofence Policy</span>
+            <span className={`text-sm font-bold ${company.geofence_enabled ? "text-emerald-600" : "text-slate-500"}`}>
+              {company.geofence_enabled ? "Strict Entrance-Only (ACTIVE)" : "Off (Anywhere Allowed)"}
+            </span>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={!!company.geofence_enabled}
+              onChange={(e) => toggle(e.target.checked)}
+            />
+            <div className="w-13 h-7 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-600 shadow-inner"></div>
+          </label>
+        </div>
+      </div>
+
+      {/* Offices List */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-800 font-heading">Operating Cities & Office Complexes ({cities.length})</h3>
+            <p className="text-xs text-slate-400">Search addresses on Google Maps. Add multiple offices or multiple hubs (+ Office / + Hub) per location.</p>
+          </div>
+          {!showAdd && (
+            <Button
+              type="button"
+              onClick={() => setShowAdd(true)}
+              className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs h-9 px-4 shadow-sm"
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Add Location
             </Button>
-            <Button type="button" variant="outline" className="rounded-xl" onClick={() => { setShowAdd(false); setNewCity(""); }}>
+          )}
+        </div>
+
+        {/* Add Location Row */}
+        {showAdd && (
+          <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/70 p-4 shadow-sm transition-all animate-in fade-in flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-[240px]">
+              <Input
+                className="rounded-xl bg-white border-emerald-300 focus:border-emerald-500 shadow-sm"
+                placeholder="Enter city/location name (e.g. Coimbatore, Bangalore, Chennai)"
+                autoFocus
+                value={newCity}
+                onChange={(e) => setNewCity(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addCity();
+                  if (e.key === "Escape") { setShowAdd(false); setNewCity(""); }
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              disabled={savingCity}
+              onClick={addCity}
+              className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs h-10 px-4"
+            >
+              <Save className="w-4 h-4 mr-1.5" /> Save Location
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl bg-white hover:bg-slate-50 text-xs h-10"
+              onClick={() => { setShowAdd(false); setNewCity(""); }}
+            >
               Cancel
             </Button>
           </div>
-        ) : (
-          <div className="flex justify-end">
-            <Button type="button" className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setShowAdd(true)}>
-              <Plus className="w-4 h-4 mr-2" /> Add
+        )}
+
+        {cities.length === 0 && (
+          <div className="rounded-2xl bg-white border border-dashed border-slate-300 p-8 text-center">
+            <p className="text-sm text-slate-500 mb-3">No office locations configured yet.</p>
+            <Button onClick={() => setShowAdd(true)} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">
+              <Plus className="w-4 h-4 mr-1.5" /> Add Location
             </Button>
           </div>
         )}
+
+        {/* City Location Cards */}
+        <div className="space-y-4">
+          {cities.map((l) => {
+            const row = rows[l.id] || {};
+            const isMainConfigured = row.lat && row.lng;
+            const branches = row.branches || [];
+            const hubs = row.hubs || [];
+            const totalPoints = (isMainConfigured ? 1 : 0) + branches.filter(b => b.lat && b.lng).length + hubs.filter(h => h.lat && h.lng).length;
+
+            return (
+              <div
+                key={l.id}
+                className="rounded-2xl bg-white border border-slate-200/90 p-5 shadow-sm hover:shadow-md transition-shadow space-y-5"
+              >
+                {/* Header: Location Name + Configured Count + Actions */}
+                <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white font-bold flex items-center justify-center font-heading text-sm shadow-sm">
+                      {l.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-heading font-bold text-slate-900 text-lg">{l.name}</span>
+                        {totalPoints > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> {totalPoints} Check-in Point{totalPoints > 1 ? "s" : ""} Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Setup Required
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400">Staff assigned to {l.name} can check in at any configured office or hub listed below.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => addBranch(l.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-medium bg-slate-50 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Another Office
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addHub(l.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-medium bg-slate-50 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Hub
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteCity(l)}
+                      title="Delete location"
+                      className="text-xs text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 1. Main Office Point */}
+                <div className="rounded-xl bg-slate-50/50 border border-slate-200/80 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-700 font-heading">
+                        Main Office (Primary)
+                      </span>
+                    </div>
+                    {isMainConfigured && (
+                      <a
+                        href={`https://www.google.com/maps?q=${row.lat},${row.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-emerald-600 hover:text-emerald-700 font-medium inline-flex items-center gap-1"
+                      >
+                        View Pin ↗
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                    <div className="md:col-span-8 relative">
+                      <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between mb-1">
+                        <span>Office Address (Google Maps Search)</span>
+                        {busy[`${l.id}:main`] && <span className="text-emerald-600 text-[11px] animate-pulse">Resolving GPS…</span>}
+                      </Label>
+                      <Input
+                        className="rounded-xl bg-white h-10 text-sm"
+                        placeholder="Type landmark, building, or street address on Google Maps…"
+                        value={row.address || ""}
+                        autoComplete="off"
+                        onChange={(e) => {
+                          setRow(l.id, { address: e.target.value, lat: "", lng: "" });
+                          suggest(`${l.id}:main`, e.target.value);
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => setSugg((s) => ({ ...s, [`${l.id}:main`]: [] })), 150);
+                          if (!row.lat) findCoords(`${l.id}:main`, row.address, (la, ln) => setRow(l.id, { lat: la, lng: ln }));
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && findCoords(`${l.id}:main`, row.address, (la, ln) => setRow(l.id, { lat: la, lng: ln }))}
+                      />
+                      {(sugg[`${l.id}:main`] || []).length > 0 && (
+                        <ul className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl max-h-56 overflow-auto divide-y divide-slate-100">
+                          {sugg[`${l.id}:main`].map((s, i) => (
+                            <li
+                              key={s.place_id || i}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                pickLocation(`${l.id}:main`, s, (addr, la, ln) => setRow(l.id, { address: addr, lat: la, lng: ln }));
+                              }}
+                              className="px-4 py-2.5 text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-900 cursor-pointer flex items-center gap-2 transition-colors"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                              <span className="line-clamp-1">{s.description}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <Label className="text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                        <span>Radius (m)</span>
+                        <span className="text-[10px] text-emerald-600 font-medium">
+                          {(row.radius_m || 50) <= 50 ? "Door / Entry" : (row.radius_m || 50) <= 100 ? "Whole Floor" : "Campus"}
+                        </span>
+                      </Label>
+                      <Input
+                        type="number"
+                        className="rounded-xl bg-white h-10 text-sm font-semibold"
+                        placeholder="e.g. 50"
+                        value={row.radius_m || 50}
+                        onChange={(e) => setRow(l.id, { radius_m: e.target.value })}
+                      />
+                      <div className="flex gap-1 mt-1">
+                        <button type="button" onClick={() => setRow(l.id, { radius_m: 40 })} className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${row.radius_m == 40 ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>40m (Door)</button>
+                        <button type="button" onClick={() => setRow(l.id, { radius_m: 80 })} className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${row.radius_m == 80 ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>80m (Floor)</button>
+                        <button type="button" onClick={() => setRow(l.id, { radius_m: 150 })} className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${row.radius_m == 150 ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>150m</button>
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-2 flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => here((addr, la, ln) => setRow(l.id, { address: addr || row.address, lat: la, lng: ln }))}
+                        className="w-full text-xs h-10 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium inline-flex items-center justify-center gap-1 shadow-sm"
+                      >
+                        📍 Use My GPS
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Exact Google Pin Display */}
+                  {row.lat && row.lng && (
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/60 text-slate-500">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <span className="font-medium text-emerald-800">Exact Google Pin Verified:</span>
+                        <span className="font-mono text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                          {Number(row.lat).toFixed(6)}, {Number(row.lng).toFixed(6)}
+                        </span>
+                      </div>
+                      <a
+                        href={`https://www.google.com/maps?q=${row.lat},${row.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-600 hover:text-emerald-700 font-medium inline-flex items-center gap-1 hover:underline"
+                      >
+                        Verify on Satellite Map ↗
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Additional Offices / Branches */}
+                {branches.map((b, bIdx) => {
+                  const bKey = `${l.id}:b:${bIdx}`;
+                  const isBranchConfigured = b.lat && b.lng;
+                  return (
+                    <div key={bIdx} className="rounded-xl bg-slate-50/50 border border-slate-200/80 p-4 space-y-3 animate-in fade-in">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-blue-500" />
+                          <Input
+                            className="h-7 w-48 text-xs font-bold text-slate-800 bg-transparent border-0 border-b border-transparent hover:border-slate-300 focus:border-blue-500 px-0"
+                            value={b.name || `Office ${bIdx + 2}`}
+                            onChange={(e) => updateBranch(l.id, bIdx, { name: e.target.value })}
+                          />
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {isBranchConfigured && (
+                            <a
+                              href={`https://www.google.com/maps?q=${b.lat},${b.lng}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-blue-600 hover:text-blue-700 font-medium inline-flex items-center gap-1"
+                            >
+                              View Pin ↗
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeBranch(l.id, bIdx)}
+                            className="text-xs text-red-500 hover:text-red-700 inline-flex items-center gap-0.5"
+                          >
+                            <X className="w-3.5 h-3.5" /> Remove
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                        <div className="md:col-span-8 relative">
+                          <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between mb-1">
+                            <span>Branch Address (Google Maps Search)</span>
+                            {busy[bKey] && <span className="text-blue-600 text-[11px] animate-pulse">Resolving GPS…</span>}
+                          </Label>
+                          <Input
+                            className="rounded-xl bg-white h-10 text-sm"
+                            placeholder="Type branch location or landmark…"
+                            value={b.address || ""}
+                            autoComplete="off"
+                            onChange={(e) => {
+                              updateBranch(l.id, bIdx, { address: e.target.value, lat: "", lng: "" });
+                              suggest(bKey, e.target.value);
+                            }}
+                            onBlur={() => {
+                              setTimeout(() => setSugg((s) => ({ ...s, [bKey]: [] })), 150);
+                              if (!b.lat) findCoords(bKey, b.address, (la, ln) => updateBranch(l.id, bIdx, { lat: la, lng: ln }));
+                            }}
+                            onKeyDown={(e) => e.key === "Enter" && findCoords(bKey, b.address, (la, ln) => updateBranch(l.id, bIdx, { lat: la, lng: ln }))}
+                          />
+                          {(sugg[bKey] || []).length > 0 && (
+                            <ul className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl max-h-56 overflow-auto divide-y divide-slate-100">
+                              {sugg[bKey].map((s, i) => (
+                                <li
+                                  key={s.place_id || i}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    pickLocation(bKey, s, (addr, la, ln) => updateBranch(l.id, bIdx, { address: addr, lat: la, lng: ln }));
+                                  }}
+                                  className="px-4 py-2.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-900 cursor-pointer flex items-center gap-2 transition-colors"
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                                  <span className="line-clamp-1">{s.description}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <Label className="text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                            <span>Radius (m)</span>
+                            <span className="text-[10px] text-blue-600 font-medium">
+                              {(b.radius_m || 50) <= 50 ? "Door / Entry" : "Floor"}
+                            </span>
+                          </Label>
+                          <Input
+                            type="number"
+                            className="rounded-xl bg-white h-10 text-sm font-semibold"
+                            value={b.radius_m || 50}
+                            onChange={(e) => updateBranch(l.id, bIdx, { radius_m: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="md:col-span-2 flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => here((addr, la, ln) => updateBranch(l.id, bIdx, { address: addr || b.address, lat: la, lng: ln }))}
+                            className="w-full text-xs h-10 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium inline-flex items-center justify-center gap-1 shadow-sm"
+                          >
+                            📍 Use My GPS
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 3. Hubs / Warehouses */}
+                {hubs.map((h, hIdx) => {
+                  const hKey = `${l.id}:h:${hIdx}`;
+                  const isHubConfigured = h.lat && h.lng;
+                  return (
+                    <div key={hIdx} className="rounded-xl bg-amber-50/40 border border-amber-200/80 p-4 space-y-3 animate-in fade-in">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-amber-500" />
+                          <Input
+                            className="h-7 w-48 text-xs font-bold text-amber-950 bg-transparent border-0 border-b border-transparent hover:border-amber-300 focus:border-amber-500 px-0"
+                            value={h.name || `Hub ${hIdx + 1}`}
+                            onChange={(e) => updateHub(l.id, hIdx, { name: e.target.value })}
+                          />
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {isHubConfigured && (
+                            <a
+                              href={`https://www.google.com/maps?q=${h.lat},${h.lng}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-amber-700 hover:text-amber-800 font-medium inline-flex items-center gap-1"
+                            >
+                              View Pin ↗
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeHub(l.id, hIdx)}
+                            className="text-xs text-red-500 hover:text-red-700 inline-flex items-center gap-0.5"
+                          >
+                            <X className="w-3.5 h-3.5" /> Remove
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                        <div className="md:col-span-8 relative">
+                          <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between mb-1">
+                            <span>Hub / Warehouse Address (Google Maps Search)</span>
+                            {busy[hKey] && <span className="text-amber-600 text-[11px] animate-pulse">Resolving GPS…</span>}
+                          </Label>
+                          <Input
+                            className="rounded-xl bg-white h-10 text-sm"
+                            placeholder="Type hub location, warehouse, or depot address…"
+                            value={h.address || ""}
+                            autoComplete="off"
+                            onChange={(e) => {
+                              updateHub(l.id, hIdx, { address: e.target.value, lat: "", lng: "" });
+                              suggest(hKey, e.target.value);
+                            }}
+                            onBlur={() => {
+                              setTimeout(() => setSugg((s) => ({ ...s, [hKey]: [] })), 150);
+                              if (!h.lat) findCoords(hKey, h.address, (la, ln) => updateHub(l.id, hIdx, { lat: la, lng: ln }));
+                            }}
+                            onKeyDown={(e) => e.key === "Enter" && findCoords(hKey, h.address, (la, ln) => updateHub(l.id, hIdx, { lat: la, lng: ln }))}
+                          />
+                          {(sugg[hKey] || []).length > 0 && (
+                            <ul className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl max-h-56 overflow-auto divide-y divide-slate-100">
+                              {sugg[hKey].map((s, i) => (
+                                <li
+                                  key={s.place_id || i}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    pickLocation(hKey, s, (addr, la, ln) => updateHub(l.id, hIdx, { address: addr, lat: la, lng: ln }));
+                                  }}
+                                  className="px-4 py-2.5 text-xs text-slate-700 hover:bg-amber-100 hover:text-amber-950 cursor-pointer flex items-center gap-2 transition-colors"
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+                                  <span className="line-clamp-1">{s.description}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <Label className="text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                            <span>Radius (m)</span>
+                            <span className="text-[10px] text-amber-700 font-medium">
+                              {(h.radius_m || 50) <= 50 ? "Depot Entry" : "Compound"}
+                            </span>
+                          </Label>
+                          <Input
+                            type="number"
+                            className="rounded-xl bg-white h-10 text-sm font-semibold"
+                            value={h.radius_m || 50}
+                            onChange={(e) => updateHub(l.id, hIdx, { radius_m: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="md:col-span-2 flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => here((addr, la, ln) => updateHub(l.id, hIdx, { address: addr || h.address, lat: la, lng: ln }))}
+                            className="w-full text-xs h-10 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium inline-flex items-center justify-center gap-1 shadow-sm"
+                          >
+                            📍 Use My GPS
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Footer Save Button for this city */}
+                <div className="pt-2 flex justify-end">
+                  <Button
+                    type="button"
+                    onClick={() => save(l.id)}
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs h-10 px-6 shadow-sm shadow-emerald-600/20"
+                  >
+                    <Save className="w-4 h-4 mr-1.5" /> Save All {l.name} Check-in Locations
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

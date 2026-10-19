@@ -135,13 +135,17 @@ function AdminHome({ data, today, shift, navigate }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-slate-500 text-xs">
-                <th className="font-medium px-5 py-2">Employee</th><th className="font-medium px-3 py-2">Check In</th>
-                <th className="font-medium px-3 py-2">Check Out</th><th className="font-medium px-5 py-2">Status</th>
+                <th className="font-medium px-5 py-2">Employee</th>
+                <th className="font-medium px-3 py-2">Location</th>
+                <th className="font-medium px-3 py-2">Check In</th>
+                <th className="font-medium px-3 py-2">Check Out</th>
+                <th className="font-medium px-5 py-2">Status</th>
               </tr></thead>
               <tbody>
                 {data.attendance_today.slice(0, 8).map((r) => (
                   <tr key={r.employee_id} className="border-t border-slate-50 hover:bg-slate-50/80 transition-colors">
                     <td className="px-5 py-3"><div className="flex items-center gap-2.5"><Avatar src={r.photo} name={r.name} size={30} /><span className="font-medium text-slate-700">{r.name}</span></div></td>
+                    <td className="px-3 py-3 text-slate-600 text-xs font-medium">{r.check_in_office || r.location || "—"}</td>
                     <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}</td>
                     <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}</td>
                     <td className="px-5 py-3"><StatusBadge status={r.status} /></td>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LogIn, Coffee, Flag, CircleDot, List, CalendarDays } from "lucide-react";
+import { LogIn, Coffee, Flag, CircleDot, List, CalendarDays, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -24,7 +24,7 @@ function Timeline({ today, shift }) {
     return <EmptyState icon={LogIn} title="Your workday hasn't started yet." subtitle="Check in to begin tracking your day." />;
   const fmtShift = (hm) => { if (!hm) return "—"; const [h, m] = hm.split(":").map(Number); const ap = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ap}`; };
   const events = [
-    { time: timeStr(today.check_in), label: "Check In", icon: CircleDot, color: "text-emerald-500", bg: "bg-emerald-50" },
+    { time: timeStr(today.check_in), label: today.check_in_office ? `Check In (${today.check_in_office})` : "Check In", icon: CircleDot, color: "text-emerald-500", bg: "bg-emerald-50" },
   ];
   if (today.check_out) {
     const co = { time: timeStr(today.check_out), label: "Check Out", icon: Flag, color: "text-red-500", bg: "bg-red-50" };
@@ -164,7 +164,15 @@ function StaffAttendance() {
                 {data.history.map((a) => (
                   <tr key={a.id} className="border-t border-slate-50 hover:bg-slate-50/80 transition-colors">
                     <td className="px-5 py-3 font-medium text-slate-700">{shortDate(a.date)}</td>
-                    <td className="px-3 py-3 text-slate-600">{timeStr(a.check_in)}</td>
+                    <td className="px-3 py-3 text-slate-600">
+                      <div>{timeStr(a.check_in)}</div>
+                      {a.check_in_office && (
+                        <div className="flex items-center gap-1 text-[11px] text-emerald-600 font-medium mt-0.5">
+                          <MapPin className="w-3 h-3" />
+                          <span>{a.check_in_office}</span>
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-3 text-slate-600">{timeStr(a.check_out)}</td>
                     <td className="px-3 py-3 text-slate-600">{a.hours ? `${a.hours}h` : "—"}</td>
                     <td className="px-5 py-3"><StatusBadge status={a.status} /></td>
@@ -182,9 +190,11 @@ function StaffAttendance() {
 function AdminAttendance({ user }) {
   const [rows, setRows] = useState([]);
   const [depts, setDepts] = useState([]);
+  const [locs, setLocs] = useState([]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [dept, setDept] = useState("all");
   const [status, setStatus] = useState("all");
+  const [locFilter, setLocFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selEmp, setSelEmp] = useState(null);
 
@@ -192,18 +202,26 @@ function AdminAttendance({ user }) {
     const params = { date };
     if (dept !== "all") params.department = dept;
     if (status !== "all") params.status = status;
+    if (locFilter !== "all") params.location = locFilter;
     const { data } = await api.get("/attendance", { params });
     setRows(data);
   };
-  useEffect(() => { api.get("/departments").then((r) => setDepts(r.data)); }, []);
-  useEffect(() => { load(); }, [date, dept, status]);
+  useEffect(() => {
+    api.get("/departments").then((r) => setDepts(r.data));
+    api.get("/locations").then((r) => setLocs(r.data)).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [date, dept, status, locFilter]);
 
   const mark = async (empId, st) => { await api.post("/attendance/mark", null, { params: { employee_id: empId, date, status: st } }); toast.success("Attendance updated"); load(); };
 
   const counts = { Present: 0, Late: 0, "Half Day": 0, Permission: 0, Absent: 0, Leave: 0, Holiday: 0, "Week Off": 0, "Work from Home": 0 };
   rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
 
-  const filteredRows = rows.filter(r => r.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredRows = rows.filter(r => 
+    r.name.toLowerCase().includes(search.toLowerCase()) || 
+    (r.location || "").toLowerCase().includes(search.toLowerCase()) ||
+    (r.check_in_office || "").toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -218,6 +236,13 @@ function AdminAttendance({ user }) {
 
       <div className="flex flex-wrap gap-3">
         <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-testid="att-date" className="rounded-xl w-44 bg-white" />
+        <Select value={locFilter} onValueChange={setLocFilter}>
+          <SelectTrigger className="rounded-xl w-40 bg-white" data-testid="att-loc"><SelectValue placeholder="All Locations" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Locations</SelectItem>
+            {locs.map((l) => <SelectItem key={l.id} value={l.name}>{l.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <Select value={dept} onValueChange={setDept}>
           <SelectTrigger className="rounded-xl w-40 bg-white" data-testid="att-dept"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="all">All Departments</SelectItem>{depts.map((d) => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent>
@@ -227,7 +252,7 @@ function AdminAttendance({ user }) {
           <SelectContent><SelectItem value="all">All Status</SelectItem>{["Present", "Late", "Absent", "Leave", "Holiday", "Week Off", "Work from Home", "Half Day"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
         </Select>
         <Input 
-          placeholder="Search staff by name..." 
+          placeholder="Search staff or location..." 
           value={search} 
           onChange={(e) => setSearch(e.target.value)} 
           className="rounded-xl w-64 bg-white"
@@ -238,14 +263,38 @@ function AdminAttendance({ user }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-slate-500 text-xs">
-              <th className="font-medium px-5 py-3">Employee</th><th className="font-medium px-3 py-3">Check In</th>
-              <th className="font-medium px-3 py-3">Check Out</th><th className="font-medium px-3 py-3">Hours</th>
-              <th className="font-medium px-3 py-3">Status</th>{(user.role === "admin" || user.role === "admin_staff") && <th className="font-medium px-5 py-3">Mark</th>}
+              <th className="font-medium px-5 py-3">Employee</th>
+              <th className="font-medium px-3 py-3">Location</th>
+              <th className="font-medium px-3 py-3">Check In</th>
+              <th className="font-medium px-3 py-3">Check Out</th>
+              <th className="font-medium px-3 py-3">Hours</th>
+              <th className="font-medium px-3 py-3">Status</th>
+              {(user.role === "admin" || user.role === "admin_staff") && <th className="font-medium px-5 py-3">Mark</th>}
             </tr></thead>
             <tbody>
               {filteredRows.map((r) => (
                 <tr key={r.employee_id} onClick={(ev) => { if (!ev.target.closest("button,input,select,[role=combobox],[role=option],[role=listbox]")) setSelEmp(r); }} className="cursor-pointer border-t border-slate-50 hover:bg-slate-50/80 transition-colors">
                   <td className="px-5 py-3"><div className="flex items-center gap-2.5"><Avatar src={r.photo} name={r.name} size={30} /><span className="font-medium text-slate-700">{r.name}</span></div></td>
+                  <td className="px-3 py-3 text-slate-600">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-slate-700 text-xs flex items-center gap-1">
+                        {r.check_in_office ? (
+                          <>
+                            <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            {r.check_in_office}
+                          </>
+                        ) : (
+                          r.location || "—"
+                        )}
+                      </span>
+                      {r.check_in_place && (
+                        <span className="text-[10px] text-emerald-600 font-medium">
+                          {r.check_in_place === "hub" ? "Hub Check-in" : "Office Check-in"}
+                          {r.check_in_distance_m !== null && r.check_in_distance_m !== undefined ? ` · ${r.check_in_distance_m}m away` : ""}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}</td>
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}</td>
                   <td className="px-3 py-3 text-slate-600">{r.hours ? `${r.hours}h` : "—"}</td>
