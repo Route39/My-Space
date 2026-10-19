@@ -477,7 +477,7 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400">Staff assigned to {l.name} can check in at any configured office or hub listed below.</p>
+                      <p className="text-xs text-slate-400">All company staff visiting or based in {l.name} can check in at any configured office or hub below.</p>
                     </div>
                   </div>
 

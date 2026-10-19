@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LogIn, LogOut, CheckCircle2, Sun, MapPin } from "lucide-react";
+import { LogIn, LogOut, CheckCircle2, Sun, MapPin, AlertTriangle, ShieldAlert, Navigation } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { timeStr } from "@/lib/format";
@@ -86,8 +86,11 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
   const done = today?.check_in && today?.check_out;
   const shiftH = shiftHours(shift);
 
+  const [geoAlert, setGeoAlert] = useState(null);
+
   const doCheckIn = async () => {
     setBusy(true);
+    setGeoAlert(null);
     setStatusText("Getting GPS…");
     let locError = null;
     try {
@@ -97,17 +100,21 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
         loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
       } catch (err) {
         locError = err.message;
+        setGeoAlert({ type: "gps_error", message: locError });
         toast.error(locError);
         return;
       }
-      setStatusText("Checking in…");
+      setStatusText("Verifying Geofence…");
       const { data } = await api.post("/attendance/checkin", loc);
+      setGeoAlert(null);
       toast.success(data?.check_in_office ? `Checked in at ${data.check_in_office}` : "Checked in successfully");
       onChange && onChange();
     }
     catch (e) {
       const serverMsg = e.response?.data?.detail;
-      toast.error(serverMsg || locError || "Check-in failed");
+      const msg = serverMsg || locError || "Check-in failed";
+      setGeoAlert({ type: "geofence_denied", message: msg });
+      toast.error(msg);
     }
     finally {
       setBusy(false);
@@ -183,6 +190,24 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
           </div>
         </div>
       </div>
+
+      {geoAlert && !checkedIn && (
+        <div className="mt-4 rounded-2xl bg-amber-500/15 border border-amber-500/30 p-3.5 text-amber-200 text-xs space-y-1.5 animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-2 font-semibold text-amber-300">
+            {geoAlert.type === "gps_error" ? (
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            ) : (
+              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+            )}
+            <span>{geoAlert.type === "gps_error" ? "GPS Location Required" : "Outside Office Geofence"}</span>
+          </div>
+          <p className="leading-relaxed text-slate-200">{geoAlert.message}</p>
+          <div className="flex items-center gap-1.5 text-[11px] text-amber-400/90 font-medium pt-0.5">
+            <Navigation className="w-3 h-3" />
+            <span>Enter physically inside the entrance door (within 40m) to enable check in.</span>
+          </div>
+        </div>
+      )}
 
       <div className="mt-5 relative">
         {isOnLeaveToday ? (
