@@ -1344,7 +1344,10 @@ async def employee_month_attendance(emp_id: str, month: Optional[str] = None,
         days.append({"date": ds, "status": st,
                      "check_in": a.get("check_in") if a else None,
                      "check_out": a.get("check_out") if a else None,
-                     "hours": a.get("hours", 0) if a else 0})
+                     "hours": a.get("hours", 0) if a else 0,
+                     "check_in_office": a.get("check_in_office") if a else None,
+                     "check_in_place": a.get("check_in_place") if a else None,
+                     "check_in_distance_m": a.get("check_in_distance_m") if a else None})
         d += timedelta(days=1)
     return {"employee_id": emp_id, "month": m, "days": days, "summary": summary}
 
