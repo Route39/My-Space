@@ -161,7 +161,7 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
         address: l.address ?? "",
         lat: l.lat ?? "",
         lng: l.lng ?? "",
-        radius_m: l.radius_m ?? 150,
+        radius_m: l.radius_m ?? 40,
         branches: l.branches || [],
         hubs: l.hubs || [],
       };
@@ -529,7 +529,7 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                    <div className="md:col-span-8 relative">
+                    <div className="md:col-span-6 relative">
                       <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between mb-1">
                         <span>Office Address (Google Maps Search)</span>
                         {busy[`${l.id}:main`] && <span className="text-emerald-600 text-[11px] animate-pulse">Resolving GPS…</span>}
@@ -568,24 +568,61 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
                       )}
                     </div>
 
-                    <div className="md:col-span-2">
+                    <div className="md:col-span-4">
                       <Label className="text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
-                        <span>Radius (m)</span>
-                        <span className="text-[10px] text-emerald-600 font-medium">
-                          {(row.radius_m || 50) <= 50 ? "Door / Entry" : (row.radius_m || 50) <= 100 ? "Whole Floor" : "Campus"}
+                        <span>Biometric Door Radius</span>
+                        <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${
+                          Number(row.radius_m || 40) <= 40 ? "bg-emerald-100 text-emerald-800" :
+                          Number(row.radius_m || 40) <= 80 ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"
+                        }`}>
+                          {Number(row.radius_m || 40) <= 40 ? "🚪 40m (Entrance Door)" :
+                           Number(row.radius_m || 40) <= 80 ? "🏢 80m (Whole Floor)" : "📍 150m (Campus)"}
                         </span>
                       </Label>
-                      <Input
-                        type="number"
-                        className="rounded-xl bg-white h-10 text-sm font-semibold"
-                        placeholder="e.g. 50"
-                        value={row.radius_m || 50}
-                        onChange={(e) => setRow(l.id, { radius_m: e.target.value })}
-                      />
-                      <div className="flex gap-1 mt-1">
-                        <button type="button" onClick={() => setRow(l.id, { radius_m: 40 })} className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${row.radius_m == 40 ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>40m (Door)</button>
-                        <button type="button" onClick={() => setRow(l.id, { radius_m: 80 })} className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${row.radius_m == 80 ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>80m (Floor)</button>
-                        <button type="button" onClick={() => setRow(l.id, { radius_m: 150 })} className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${row.radius_m == 150 ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>150m</button>
+                      <div className="flex items-center gap-1.5">
+                        <div className="relative flex-1">
+                          <Input
+                            type="number"
+                            min="20"
+                            max="500"
+                            className="rounded-xl bg-white h-10 text-sm font-bold text-slate-800 pl-3 pr-7"
+                            value={row.radius_m ?? 40}
+                            onChange={(e) => setRow(l.id, { radius_m: e.target.value === "" ? "" : Number(e.target.value) })}
+                          />
+                          <span className="absolute right-2.5 top-2.5 text-xs font-semibold text-slate-400">m</span>
+                        </div>
+                        <div className="inline-flex rounded-xl p-0.5 bg-slate-100 border border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => setRow(l.id, { radius_m: 40 })}
+                            className={`px-2 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                              Number(row.radius_m) === 40 ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                            title="Recommended: Physical Entrance Biometric Door (40m)"
+                          >
+                            40m Door
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRow(l.id, { radius_m: 80 })}
+                            className={`px-2 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                              Number(row.radius_m) === 80 ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                            title="Whole Floor / Large Office (80m)"
+                          >
+                            80m
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRow(l.id, { radius_m: 150 })}
+                            className={`px-2 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                              Number(row.radius_m) === 150 ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                            title="Campus / Large Hub (150m)"
+                          >
+                            150m
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -593,16 +630,16 @@ function OfficeLocations({ company, setCompany, locs, reload }) {
                       <button
                         type="button"
                         onClick={() => here((addr, la, ln) => setRow(l.id, { address: addr || row.address, lat: la, lng: ln }))}
-                        className="w-full text-xs h-10 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-medium inline-flex items-center justify-center gap-1 shadow-sm"
+                        className="w-full text-xs h-10 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold inline-flex items-center justify-center gap-1.5 shadow-sm active:scale-[.99]"
                       >
-                        📍 Use My GPS
+                        <span className="text-emerald-600">📍</span> Use My GPS
                       </button>
                     </div>
                   </div>
 
                   {/* Exact Google Pin Display */}
                   {row.lat && row.lng && (
-                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/60 text-slate-500">
+                    <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60 text-slate-500">
                       <div className="flex items-center gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         <span className="font-medium text-emerald-800">Exact Google Pin Verified:</span>
