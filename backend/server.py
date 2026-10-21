@@ -16,6 +16,7 @@ import uuid
 import bcrypt
 import jwt
 import re
+import math
 from pymongo.errors import DuplicateKeyError
 from datetime import datetime, timezone, timedelta, date
 import certifi
@@ -269,6 +270,10 @@ class CompanyIn(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     brand_color: Optional[str] = None
+    geofence_enabled: Optional[bool] = None
+    office_lat: Optional[float] = None
+    office_lng: Optional[float] = None
+    office_radius_m: Optional[int] = None
 
 
 class PayrollStatusIn(BaseModel):
@@ -593,6 +598,172 @@ async def del_location(loc_id: str, user: dict = Depends(require_roles("admin"))
     return {"ok": True}
 
 
+class LocationGeoIn(BaseModel):
+    address: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    radius_m: Optional[int] = None
+    hub_address: Optional[str] = None
+    hub_lat: Optional[float] = None
+    hub_lng: Optional[float] = None
+
+
+class GeocodeIn(BaseModel):
+    address: str
+
+
+class ReverseGeocodeIn(BaseModel):
+    lat: float
+    lng: float
+
+
+GEOCODER_HEADERS = {"User-Agent": "attendy-attendance/1.0 (contact: support@route39.in)"}  # use your own email
+
+
+async def _nominatim_search(c, q):
+    r = await c.get("https://nominatim.openstreetmap.org/search",
+                    params={"q": q, "format": "jsonv2", "limit": 1})
+    r.raise_for_status()
+    data = r.json()
+    return data[0] if isinstance(data, list) and data else None
+
+
+@api.post("/locations/geocode")
+async def geocode_address(body: GeocodeIn, user: dict = Depends(require_roles("admin"))):
+    import httpx
+    import asyncio
+    addr = (body.address or "").strip()
+    if len(addr) < 3:
+        raise HTTPException(status_code=400, detail="Enter the office address")
+
+    # pasted coordinates, e.g. "12.8459, 77.6599" (copied from Google Maps): used exactly as given
+    m = re.match(r"^\s*(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$", addr)
+    if m:
+        lat, lng = float(m.group(1)), float(m.group(2))
+        if -90 <= lat <= 90 and -180 <= lng <= 180:
+            return {"lat": lat, "lng": lng, "display_name": "", "approximate": False}
+
+    # Google Maps link (full or short), e.g. https://maps.app.goo.gl/xxxx
+    if addr.lower().startswith("http"):
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True,
+                                         headers={"User-Agent": "Mozilla/5.0"}) as c:
+                resp = await c.get(addr)
+            final = str(resp.url)
+        except Exception:
+            raise HTTPException(status_code=502, detail="Could not open that link. Please try again.")
+        for pat in (r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)", r"@(-?\d+\.\d+),(-?\d+\.\d+)",
+                    r"[?&](?:q|ll|query)=(-?\d+\.\d+),(-?\d+\.\d+)"):
+            mm = re.search(pat, final)
+            if mm:
+                return {"lat": float(mm.group(1)), "lng": float(mm.group(2)), "display_name": "", "approximate": False}
+        raise HTTPException(status_code=404, detail="No location found in that link. Open the place in Google Maps and copy the link again.")
+
+    # full address first, then shorter versions (drop the leading building / street parts)
+    parts = [p.strip() for p in addr.replace("\n", ",").split(",") if p.strip()]
+    tries = [", ".join(parts[i:]) for i in range(0, max(1, len(parts) - 1))][:4]
+
+    try:
+        async with httpx.AsyncClient(timeout=10, headers=GEOCODER_HEADERS) as c:
+            for i, q in enumerate(tries):
+                if i:
+                    await asyncio.sleep(1.1)   # the free service allows about 1 request per second
+                hit = await _nominatim_search(c, q)
+                if hit:
+                    return {"lat": float(hit["lat"]), "lng": float(hit["lon"]),
+                            "display_name": hit.get("display_name", ""), "approximate": i > 0}
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach the map service. Please try again.")
+    raise HTTPException(status_code=404, detail="Address not found. Try 'Area, City, State, Pincode' without the building or landmark, or paste coordinates like 11.1085, 77.3411.")
+
+
+@api.post("/locations/reverse")
+async def reverse_geocode(body: ReverseGeocodeIn, user: dict = Depends(require_roles("admin"))):
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10, headers=GEOCODER_HEADERS) as c:
+            r = await c.get("https://nominatim.openstreetmap.org/reverse",
+                            params={"lat": body.lat, "lon": body.lng, "format": "jsonv2"})
+        data = r.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach the map service. Please try again.")
+    if not data or not data.get("display_name"):
+        raise HTTPException(status_code=404, detail="No address found for this location")
+    return {"address": data["display_name"]}
+
+
+class SuggestIn(BaseModel):
+    query: str
+
+
+class PlaceDetailsIn(BaseModel):
+    place_id: str
+
+
+GOOGLE_MAPS_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
+
+@api.post("/locations/suggest")
+async def suggest_places(body: SuggestIn, user: dict = Depends(require_roles("admin"))):
+    import httpx
+    q = (body.query or "").strip()
+    if len(q) < 3:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=8, headers=GEOCODER_HEADERS) as c:
+            if GOOGLE_MAPS_KEY:
+                r = await c.get("https://maps.googleapis.com/maps/api/place/autocomplete/json",
+                                params={"input": q, "key": GOOGLE_MAPS_KEY, "components": "country:in"})
+                data = r.json()
+                if data.get("status") not in ("OK", "ZERO_RESULTS"):
+                    logger.error(f"Google autocomplete error: {data.get('status')} {data.get('error_message')}")
+                    raise HTTPException(status_code=502, detail=data.get("error_message") or f"Google Maps error: {data.get('status')}")
+                return [{"description": p["description"], "place_id": p["place_id"], "lat": None, "lng": None}
+                        for p in data.get("predictions", [])[:6]]
+            # fallback: free OpenStreetMap search (no key needed)
+            r = await c.get("https://nominatim.openstreetmap.org/search",
+                            params={"q": q, "format": "jsonv2", "limit": 6, "countrycodes": "in"})
+            r.raise_for_status()
+            return [{"description": h.get("display_name", ""), "place_id": None,
+                     "lat": float(h["lat"]), "lng": float(h["lon"])} for h in r.json()]
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach the map service. Please try again.")
+
+
+@api.post("/locations/place-details")
+async def place_details(body: PlaceDetailsIn, user: dict = Depends(require_roles("admin"))):
+    import httpx
+    if not GOOGLE_MAPS_KEY:
+        raise HTTPException(status_code=400, detail="Google Maps key is not configured")
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get("https://maps.googleapis.com/maps/api/place/details/json",
+                            params={"place_id": body.place_id, "key": GOOGLE_MAPS_KEY,
+                                    "fields": "geometry,formatted_address"})
+        data = r.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach the map service. Please try again.")
+    res = data.get("result") or {}
+    loc = (res.get("geometry") or {}).get("location")
+    if data.get("status") != "OK" or not loc:
+        raise HTTPException(status_code=404, detail=data.get("error_message") or "Place not found")
+    return {"lat": loc["lat"], "lng": loc["lng"], "address": res.get("formatted_address", "")}
+
+
+@api.put("/locations/{loc_id}/geo")
+async def set_location_geo(loc_id: str, body: LocationGeoIn, user: dict = Depends(require_roles("admin"))):
+    upd = {"address": (body.address or "").strip(), "lat": body.lat, "lng": body.lng,
+           "radius_m": body.radius_m or DEFAULT_OFFICE_RADIUS_M,
+           "hub_address": (body.hub_address or "").strip(),
+           "hub_lat": body.hub_lat, "hub_lng": body.hub_lng}
+    res = await db.locations.update_one({"id": loc_id, "org_id": user["org_id"]}, {"$set": upd})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Location not found")
+    return await db.locations.find_one({"id": loc_id, "org_id": user["org_id"]}, {"_id": 0})
+
+
 @api.get("/shifts")
 async def list_shifts(user: dict = Depends(get_current_user)):
     return await db.shifts.find({"org_id": user["org_id"]}, {"_id": 0}).to_list(200)
@@ -782,8 +953,28 @@ async def set_salary(emp_id: str, body: SalaryIn, user: dict = Depends(require_r
 
 
 # ---------------- attendance ----------------
+MAX_GPS_ACCURACY_M = 200      # reject very weak location fixes
+DEFAULT_OFFICE_RADIUS_M = 150
+GEOFENCED_WORK_MODES = ("Office",)   # Work from Home / Hybrid staff can check in anywhere
+
+
+class CheckInIn(BaseModel):
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    accuracy: Optional[float] = None
+
+
+def haversine_m(lat1, lng1, lat2, lng2) -> float:
+    R = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
 @api.post("/attendance/checkin")
-async def checkin(user: dict = Depends(get_current_user)):
+async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
     if not emp:
         raise HTTPException(status_code=400, detail="No employee profile")
@@ -791,6 +982,38 @@ async def checkin(user: dict = Depends(get_current_user)):
     existing = await db.attendance.find_one({"employee_id": emp["id"], "date": today})
     if existing and existing.get("check_in"):
         raise HTTPException(status_code=400, detail="Already checked in")
+
+    # ---- office geofence ----
+    geo = {}
+    company = await db.companies.find_one({"id": user["org_id"]}, {"_id": 0}) or {}
+    targets = []
+    if (company.get("geofence_enabled") and (emp.get("work_mode") or "Office") in GEOFENCED_WORK_MODES
+            and (emp.get("location") or "").strip().lower() != "remote"):
+        city = (emp.get("location") or "").strip()
+        if city:
+            loc = await db.locations.find_one(
+                {"org_id": user["org_id"], "name": {"$regex": f"^{re.escape(city)}$", "$options": "i"}}, {"_id": 0})
+            if loc:
+                rad = loc.get("radius_m") or DEFAULT_OFFICE_RADIUS_M
+                if loc.get("lat") is not None and loc.get("lng") is not None:
+                    targets.append({"name": loc["name"], "kind": "office",
+                                    "lat": loc["lat"], "lng": loc["lng"], "radius": rad})
+                if loc.get("hub_lat") is not None and loc.get("hub_lng") is not None:
+                    targets.append({"name": f'{loc["name"]} (Hub)', "kind": "hub",
+                                    "lat": loc["hub_lat"], "lng": loc["hub_lng"], "radius": rad})
+    if targets:
+        if body is None or body.lat is None or body.lng is None:
+            raise HTTPException(status_code=400, detail="Location not received. Allow location access in your browser and try again.")
+        if body.accuracy is not None and body.accuracy > MAX_GPS_ACCURACY_M:
+            raise HTTPException(status_code=400, detail="Your location is not accurate enough. Turn on GPS / Wi-Fi and try again.")
+        measured = [(haversine_m(body.lat, body.lng, t["lat"], t["lng"]), t) for t in targets]
+        inside = [m for m in measured if m[0] <= m[1]["radius"]]
+        if not inside:
+            msg = "Mark attendance after reaching office or hub" if len(targets) > 1 else "Mark attendance after reaching office"
+            raise HTTPException(status_code=403, detail=msg)
+        dist, hit = min(inside, key=lambda m: m[0])
+        geo = {"check_in_lat": body.lat, "check_in_lng": body.lng, "check_in_distance_m": round(dist),
+               "check_in_office": hit["name"], "check_in_place": hit["kind"]}
         
     shift = await db.shifts.find_one({"id": emp.get("shift_id")}, {"_id": 0}) if emp.get("shift_id") else None
     ci = now_ist().isoformat()
@@ -821,6 +1044,9 @@ async def checkin(user: dict = Depends(get_current_user)):
                "late_checkin": late_checkin}
         await db.attendance.insert_one(doc)
         doc.pop("_id", None)
+    if geo:
+        await db.attendance.update_one({"id": doc["id"]}, {"$set": geo})
+        doc.update(geo)
     doc["late_count_month"] = late_count
     doc["late_excuses_left"] = max(0, LATE_EXCUSES_PER_MONTH - late_count) if late_checkin else None
 

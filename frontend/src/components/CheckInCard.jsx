@@ -21,6 +21,13 @@ function shiftHours(shift) {
   return Math.max(1, diff / 60);
 }
 
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("unsupported"));
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  });
+}
+
 export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) {
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -37,7 +44,15 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
 
   const doCheckIn = async () => {
     setBusy(true);
-    try { await api.post("/attendance/checkin"); toast.success("Checked in successfully"); onChange && onChange(); }
+    try {
+      let loc = {};
+      try {
+        const pos = await getPosition();
+        loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+      } catch (_) { /* the server decides whether location is required */ }
+      await api.post("/attendance/checkin", loc);
+      toast.success("Checked in successfully"); onChange && onChange();
+    }
     catch (e) { toast.error(e.response?.data?.detail || "Check-in failed"); }
     setBusy(false);
   };
