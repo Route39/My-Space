@@ -505,9 +505,12 @@ async def platform_set_status(org_id: str, body: PlatformStatusIn, user: dict = 
 @api.post("/auth/login")
 async def login(body: LoginIn):
     username = body.username.lower().strip()
-    user = await db.users.find_one({"$or": [{"email": username}, {"phone": username}]})
+    import re as _re
+    _d = _re.sub(r"\D", "", username)[-10:]
+    _ph = [username] + ([_d, "+91" + _d, "91" + _d, "+91 " + _d] if len(_d) == 10 else [])
+    user = await db.users.find_one({"$or": [{"email": username}, {"phone": {"$in": _ph}}]})
     if not user or not verify_password(body.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid username, email or password")
+        raise HTTPException(status_code=401, detail="Invalid mobile number or password")
     if user["role"] != "super_admin":
         company = await db.companies.find_one({"id": user.get("org_id")})
         if not company:

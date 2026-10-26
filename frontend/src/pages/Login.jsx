@@ -66,8 +66,8 @@ export default function Login() {
             <input type="password" name="fakepasswordremembered" style={{ display: 'none' }} />
             
             <div>
-              <Label htmlFor="username" className="text-slate-700">Username / Phone</Label>
-              <Input id={`usr_${Math.random()}`} name={`usr_${Math.random()}`} data-testid="login-email" type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter your username or phone" className="mt-1.5 rounded-xl h-11" autoComplete="off" readOnly onFocus={(e) => e.target.removeAttribute('readonly')} required />
+              <Label htmlFor="username" className="text-slate-700">Mobile Number</Label>
+              <Input id={`usr_${Math.random()}`} name={`usr_${Math.random()}`} data-testid="login-email" type="tel" inputMode="numeric" maxLength={10} value={username} onChange={(e) => setUsername(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="Enter 10-digit mobile number" className="mt-1.5 rounded-xl h-11" autoComplete="off" readOnly onFocus={(e) => e.target.removeAttribute('readonly')} required />
             </div>
             <div>
               <Label htmlFor="password" className="text-slate-700">Password</Label>
