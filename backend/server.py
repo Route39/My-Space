@@ -1183,6 +1183,7 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
     doc["late_excuses_left"] = max(0, LATE_EXCUSES_PER_MONTH - late_count) if late_checkin else None
 
     await log_activity(user["org_id"], f"{emp['name']} checked in")
+    doc["server_now"] = now_ist().isoformat()
     return doc
 
 
@@ -1316,6 +1317,8 @@ async def my_attendance(range: str = "month", month: Optional[str] = None, user:
         {"employee_id": emp["id"], "date": date_q}, {"_id": 0}
     ).sort("date", -1).to_list(100)
     todoc = await db.attendance.find_one({"employee_id": emp["id"], "date": today.isoformat()}, {"_id": 0})
+    if todoc:
+        todoc["server_now"] = now_ist().isoformat()
     return {"today": todoc, "history": hist}
 
 

@@ -80,6 +80,13 @@ function getPosition() {
 export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) {
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [skewMs, setSkewMs] = useState(0);
+
+  useEffect(() => {
+    if (today?.server_now) {
+      setSkewMs(new Date(today.server_now).getTime() - Date.now());
+    }
+  }, [today?.server_now]);
   const [statusText, setStatusText] = useState("");
   const [celebrate, setCelebrate] = useState(false);
 
@@ -143,8 +150,10 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
     setBusy(false);
   };
 
-  const workedSec = checkedIn ? (Date.now() - new Date(today.check_in).getTime()) / 1000 : (done ? today.hours * 3600 : 0);
   const ringMax = shiftH * 3600;
+  const nowMs = Date.now() + skewMs;
+  const rawSec = checkedIn ? (nowMs - new Date(today.check_in).getTime()) / 1000 : (done ? today.hours * 3600 : 0);
+  const workedSec = Math.min(Math.max(0, rawSec), ringMax * 2);
 
   return (
     <div className="relative rounded-3xl bg-gradient-to-br from-slate-900 to-slate-800 text-white p-6 overflow-hidden">
