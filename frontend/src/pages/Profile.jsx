@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Mail, Phone, Building2, Calendar, MapPin, Pencil } from "lucide-react";
+import { LogOut, Mail, Phone, Building2, Calendar, MapPin, Pencil, Trash2, FileText, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, StatusBadge } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const roleLabel = { admin: "Admin", admin_staff: "Admin + Staff", team_leader: "Team Leader", staff: "Staff" }[user.role];
   const [showEdit, setShowEdit] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -57,9 +58,27 @@ export default function Profile() {
         </div>
       )}
 
-      <Button onClick={() => { logout(); navigate("/login"); }} variant="outline" className="rounded-xl border-red-200 text-red-600 hover:bg-red-50" data-testid="profile-logout">
-        <LogOut className="w-4 h-4 mr-2" /> Logout
-      </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={() => { logout(); navigate("/login"); }} variant="outline" className="rounded-xl border-red-200 text-red-600 hover:bg-red-50" data-testid="profile-logout">
+          <LogOut className="w-4 h-4 mr-2" /> Logout
+        </Button>
+        <Button onClick={() => setShowDelete(true)} variant="outline" className="rounded-xl border-red-200 text-red-600 hover:bg-red-50" data-testid="profile-delete-account">
+          <Trash2 className="w-4 h-4 mr-2" /> Delete My Account
+        </Button>
+        <Button onClick={() => navigate("/privacy-policy")} variant="outline" className="rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50" data-testid="profile-privacy">
+          <ShieldCheck className="w-4 h-4 mr-2" /> Privacy Policy
+        </Button>
+        <Button onClick={() => navigate("/terms-and-conditions")} variant="outline" className="rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50" data-testid="profile-terms">
+          <FileText className="w-4 h-4 mr-2" /> Terms and Conditions
+        </Button>
+      </div>
+
+      {showDelete && (
+        <DeleteAccountModal
+          onClose={() => setShowDelete(false)}
+          onDeleted={() => { logout(); navigate("/login"); }}
+        />
+      )}
       
       {showEdit && (
         <EditProfileModal
@@ -79,6 +98,55 @@ export default function Profile() {
 const Info = ({ icon: Icon, text }) => (
   <div className="flex items-center gap-2 text-slate-600"><Icon className="w-4 h-4 text-slate-400" /> {text || "—"}</div>
 );
+
+function DeleteAccountModal({ onClose, onDeleted }) {
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      await api.post("/users/me/delete", { password });
+      toast.success("Your account has been deleted");
+      onDeleted();
+      return;
+    } catch (err) {
+      setError(err.response?.data?.detail || "Could not delete account. Please try again.");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in-95 my-8">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="font-heading text-lg font-bold text-red-600">Delete My Account</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">&times;</button>
+        </div>
+        <form onSubmit={onSubmit} className="p-6 space-y-4">
+          <p className="text-sm text-slate-600">
+            This permanently deletes your login, profile, attendance, leave and payroll records. This cannot be undone.
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Enter your password to confirm</label>
+            <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-red-400 transition-colors" />
+          </div>
+          {error && <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{error}</p>}
+          <div className="pt-2 flex justify-end gap-3">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy || !password} className="bg-red-500 hover:bg-red-600 text-white">
+              {busy ? "Deleting..." : "Delete permanently"}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function EditProfileModal({ user, employee, onClose, onSuccess }) {
   const [data, setData] = useState({ 

@@ -1016,6 +1016,40 @@ async def update_my_profile(body: UserProfileUpdateIn, user: dict = Depends(get_
     return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0, "password_hash": 0})
 
 
+class DeleteAccountIn(BaseModel):
+    password: str
+
+
+@api.post("/users/me/delete")
+async def delete_my_account(body: DeleteAccountIn, user: dict = Depends(get_current_user)):
+    """Self-service account deletion (Google Play requirement). Requires the account password."""
+    full = await db.users.find_one({"id": user["id"]})
+    # NOTE: wrong password returns 400 (not 401) so the frontend does not treat it as an expired session.
+    if not full or not verify_password(body.password or "", full.get("password_hash") or ""):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+    if user.get("role") == "super_admin":
+        raise HTTPException(status_code=403, detail="Platform accounts cannot be deleted here. Please contact support.")
+    if user.get("role") == "admin":
+        other_admins = await db.users.count_documents(
+            {"org_id": user.get("org_id"), "role": "admin", "id": {"$ne": user["id"]}})
+        if other_admins == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="You are the only admin of this workspace. Please make another person an admin, or contact support, before deleting your account.")
+
+    emp = await get_employee_for_user(user)
+    if emp:
+        emp_id = emp["id"]
+        # Same data removed when an admin deletes a staff member
+        await db.employees.delete_one({"id": emp_id})
+        await db.attendance.delete_many({"employee_id": emp_id})
+        await db.leaves.delete_many({"employee_id": emp_id})
+        await db.payroll.delete_many({"employee_id": emp_id})
+        await db.leave_balances.delete_many({"employee_id": emp_id})
+    await db.notifications.delete_many({"user_id": user["id"]})
+    await db.users.delete_one({"id": user["id"]})
+    return {"message": "Account deleted", "id": user["id"]}
+
 
 @api.put("/employees/{emp_id}/salary")
 async def set_salary(emp_id: str, body: SalaryIn, user: dict = Depends(require_roles("admin"))):

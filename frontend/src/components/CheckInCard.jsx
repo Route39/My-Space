@@ -23,51 +23,57 @@ function shiftHours(shift) {
 
 function getPosition() {
   return new Promise((resolve, reject) => {
+    // Browsers silently block geolocation on non-HTTPS pages
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      return reject(new Error("Location needs a secure (https) connection. Please open the app using its https:// link."));
+    }
     if (!navigator.geolocation) {
       return reject(new Error("Location is not supported on this device/browser"));
     }
 
-    const requestCoordinates = () => {
-      // 1. High-accuracy GPS first (10s timeout)
-      navigator.geolocation.getCurrentPosition(
-        resolve,
-        (err) => {
-          // If GPS times out indoors on Android/iOS APK, fallback to network/Wi-Fi positioning
-          if (err.code === 3 /* TIMEOUT */ || err.code === 2 /* POSITION_UNAVAILABLE */) {
-            navigator.geolocation.getCurrentPosition(
-              resolve,
-              (fallbackErr) => {
-                const msg = fallbackErr.code === 1
-                  ? "Location permission is off. Please tap 'Allow' when your device asks for location permission."
-                  : fallbackErr.code === 3
-                  ? "Location request timed out. Please turn on GPS / Wi-Fi and try again."
-                  : "Unable to retrieve device location. Turn on location services in device settings.";
-                reject(new Error(msg));
-              },
-              { enableHighAccuracy: false, timeout: 10000, maximumAge: 30000 }
-            );
-          } else if (err.code === 1 /* PERMISSION_DENIED */) {
-            reject(new Error("Location permission denied. Please allow location access in your device settings to check in."));
-          } else {
-            reject(err);
-          }
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
+    let settled = false;
+    let watchdog = null;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      fn(value);
+    };
+    const ok = (pos) => finish(resolve, pos);
+    const fail = (msg) => finish(reject, new Error(msg));
+
+    // Some mobile browsers never fire either callback; don't leave the button stuck.
+    watchdog = setTimeout(
+      () => fail("Location request timed out. Please turn on GPS / Wi-Fi, allow location for this site and try again."),
+      45000
+    );
+
+    const onFinalError = (e) => {
+      if (e && e.code === 1 /* PERMISSION_DENIED */) {
+        fail("Location permission is blocked for this site. Tap the lock/site-settings icon in the browser address bar, set Location to 'Allow', then reload and try again. (Also make sure phone Location/GPS is ON.)");
+      } else if (e && e.code === 3 /* TIMEOUT */) {
+        fail("Location request timed out. Please turn on GPS / Wi-Fi and try again.");
+      } else {
+        fail("Unable to retrieve device location. Turn on Location services in your phone settings and try again.");
+      }
     };
 
-    // Pre-check permission status if supported by modern Android WebViews
-    if (navigator.permissions && navigator.permissions.query) {
-      navigator.permissions.query({ name: "geolocation" }).then((result) => {
-        if (result.state === "denied") {
-          reject(new Error("Location access is blocked. Please open app info in device settings and enable Location."));
-        } else {
-          requestCoordinates();
-        }
-      }).catch(() => requestCoordinates());
-    } else {
-      requestCoordinates();
-    }
+    // The browser itself is the source of truth for permission, so call it directly
+    // (the prompt appears here if needed) instead of trusting navigator.permissions.query.
+    navigator.geolocation.getCurrentPosition(
+      ok,
+      (err) => {
+        if (settled) return;
+        if (err && err.code === 1) return onFinalError(err);
+        // GPS timed out / unavailable -> fall back to network / Wi-Fi positioning
+        navigator.geolocation.getCurrentPosition(
+          ok,
+          onFinalError,
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+        );
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
+    );
   });
 }
 

@@ -18,6 +18,9 @@ import Payslip from "@/pages/Payslip";
 import Settings from "@/pages/Settings";
 import Profile from "@/pages/Profile";
 import ChatPage from "@/pages/ChatPage";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import DeleteAccount from "@/pages/DeleteAccount";
+import TermsAndConditions from "@/pages/TermsAndConditions";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -40,6 +43,9 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
+        <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/" element={<Protected><Dashboard /></Protected>} />
         <Route path="/staff" element={<Protected roles={["admin", "team_leader", "admin_staff"]}><Staff /></Protected>} />
         <Route path="/staff/:id" element={<Protected roles={["admin", "team_leader", "admin_staff"]}><EmployeeProfile /></Protected>} />
