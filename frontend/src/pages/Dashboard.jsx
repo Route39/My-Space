@@ -29,10 +29,11 @@ export default function Dashboard() {
   const load = async () => {
     const [d, att] = await Promise.all([
       api.get("/dashboard"), 
-      api.get("/attendance/me", { params: { range: "today" } }).catch(() => ({ data: { today: null } }))
+      api.get("/attendance/me", { params: { range: "today" } }).catch(() => null)
     ]);
     setData(d.data); 
-    setToday(att.data.today);
+    if (att) setToday(att.data.today);
+    else api.get("/attendance/me", { params: { range: "today" } }).then((r) => setToday(r.data.today)).catch(() => {});
 
     api.get("/announcements")
       .then((res) => setAnnouncements(res.data))

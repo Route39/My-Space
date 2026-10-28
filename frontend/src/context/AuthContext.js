@@ -32,6 +32,29 @@ export function AuthProvider({ children }) {
     if (slug) api.get(`/tenant/${slug}`).then((r) => setTenant(r.data)).catch(() => {});
   }, [loadMe]);
 
+  // Keep the logged-in user's details in sync with admin edits (on focus / app resume / every minute)
+  useEffect(() => {
+    const sync = async () => {
+      if (!localStorage.getItem("attendy_token")) return;
+      try {
+        const { data } = await api.get("/auth/me");
+        setUser((prev) => (JSON.stringify(prev) === JSON.stringify(data.user) ? prev : data.user));
+        setEmployee((prev) => (JSON.stringify(prev) === JSON.stringify(data.employee) ? prev : data.employee));
+      } catch (e) {
+        // ignore: keep showing the current details and never log the user out from a background refresh
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") sync(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", sync);
+    const timer = setInterval(sync, 60000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", sync);
+      clearInterval(timer);
+    };
+  }, []);
+
   const login = async (username, password) => {
     localStorage.removeItem("seen_notices");
     const slug = getTenantSlug();

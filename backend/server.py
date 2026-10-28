@@ -331,6 +331,7 @@ def compute_status(check_in_iso: str, shift: Optional[dict]) -> str:
 
 
 LATE_EXCUSES_PER_MONTH = 3
+PERMISSIONS_PER_MONTH = 3
 
 
 def is_week_off(date_str: str) -> bool:
@@ -945,7 +946,7 @@ async def update_employee(emp_id: str, body: EmployeeIn, user: dict = Depends(re
     
     await db.employees.update_one({"id": emp_id, "org_id": user["org_id"]}, {"$set": upd})
     
-    user_upd = {"email": email, "phone": body.phone}
+    user_upd = {"email": email, "phone": body.phone, "name": body.name}
     if body.password:
         user_upd["password_hash"] = hash_password(body.password)
     if "role" in body.model_fields_set and body.role:
@@ -1151,6 +1152,23 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
     return doc
 
 
+AUTO_CHECKOUT_FREE_DAYS_PER_MONTH = 3
+
+
+async def auto_checkout_penalty(att: dict) -> dict:
+    """First 3 forgotten check-outs in a month stay a full day.
+    From the 4th onwards the day is marked Half Day (0.5 day LOP in payslip)."""
+    if att.get("status") not in ("Present", "Late"):
+        return {}
+    month = att["date"][:7]
+    prior = await db.attendance.count_documents({
+        "employee_id": att["employee_id"], "id": {"$ne": att["id"]},
+        "date": {"$regex": f"^{month}"}, "auto_checkout": True})
+    if prior >= AUTO_CHECKOUT_FREE_DAYS_PER_MONTH:
+        return {"status": "Half Day", "auto_half_day": True}
+    return {}
+
+
 @api.post("/attendance/checkout")
 async def checkout(user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
@@ -1167,6 +1185,9 @@ async def checkout(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Not checked in")
     if att.get("check_out"):
         raise HTTPException(status_code=400, detail="Already checked out")
+    # ignore accidental double-taps right after check-in
+    if (now_ist() - datetime.fromisoformat(att["check_in"])).total_seconds() < 60:
+        raise HTTPException(status_code=400, detail="You just checked in. Please wait a minute before checking out.")
 
     shift = await db.shifts.find_one({"id": emp.get("shift_id")}, {"_id": 0}) if emp.get("shift_id") else None
     ci_dt = datetime.fromisoformat(att["check_in"])
@@ -1176,6 +1197,7 @@ async def checkout(user: dict = Depends(get_current_user)):
     if now >= limit:  # forgot to checkout earlier -> cap at 10 hrs
         now = limit
         update["auto_checkout"] = True
+        update.update(await auto_checkout_penalty(att))
 
     co = now.isoformat()
     hrs = hours_between(att["check_in"], co)
@@ -1195,7 +1217,7 @@ async def auto_fix_missing_checkouts(emp_id: Optional[str] = None, org_id: Optio
         if org_id:
             query["org_id"] = org_id
 
-        records = await db.attendance.find(query).to_list(5000)
+        records = await db.attendance.find(query).sort("date", 1).to_list(5000)
         shift_cache: dict = {}
         emp_shift: dict = {}
         for r in records:
@@ -1213,8 +1235,9 @@ async def auto_fix_missing_checkouts(emp_id: Optional[str] = None, org_id: Optio
             if now >= co_dt:
                 co = co_dt.isoformat()
                 hrs = hours_between(r["check_in"], co)
-                await db.attendance.update_one(
-                    {"id": r["id"]}, {"$set": {"check_out": co, "hours": hrs, "auto_checkout": True}})
+                upd = {"check_out": co, "hours": hrs, "auto_checkout": True}
+                upd.update(await auto_checkout_penalty(r))
+                await db.attendance.update_one({"id": r["id"]}, {"$set": upd})
     except Exception as e:
         logging.error(f"Error in auto_fix_missing_checkouts: {e}")
 
@@ -1477,6 +1500,16 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
         await db.leave_balances.update_one({"employee_id": leave["employee_id"]}, {"$inc": {"used_casual": leave["days"]}})
     elif leave["leave_type"] == "Sick Leave":
         await db.leave_balances.update_one({"employee_id": leave["employee_id"]}, {"$inc": {"used_sick": leave["days"]}})
+    # Permissions: first PERMISSIONS_PER_MONTH per month stay "Permission";
+    # from the next one onwards the day is treated as a Half Day (0.5 LOP day)
+    perm_status = "Permission"
+    if leave.get("category") == "Permission":
+        prior_perms = await db.leaves.count_documents({
+            "employee_id": leave["employee_id"], "category": "Permission", "status": "Approved",
+            "from_date": {"$regex": f"^{leave['from_date'][:7]}"}, "id": {"$ne": leave_id}})
+        if prior_perms >= PERMISSIONS_PER_MONTH:
+            perm_status = "Half Day"
+            await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"over_limit": True}})
     d = date.fromisoformat(leave["from_date"])
     end = date.fromisoformat(leave["to_date"])
     while d <= end:
@@ -1484,7 +1517,7 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
         if cat == "Half Day":
             await mark_attendance(leave["employee_id"], d.isoformat(), "Half Day", user)
         elif cat == "Permission":
-            await mark_attendance(leave["employee_id"], d.isoformat(), "Permission", user)
+            await mark_attendance(leave["employee_id"], d.isoformat(), perm_status, user)
         else:
             status_to_mark = "Work from Home" if leave["leave_type"] == "Work from Home" else "Leave"
             await mark_attendance(leave["employee_id"], d.isoformat(), status_to_mark, user)
@@ -1675,8 +1708,11 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
             if a.get("hours", 0) > 9:
                 overtime_hours += a["hours"] - 9
         # paid approved leaves
+        # Casual / Sick / Other leaves are now treated as LOP (full day = 1, half day = 0.5),
+        # so only "Permission" leaves are still counted as paid days here.
         paid_leaves = await db.leaves.find({"employee_id": e["id"], "status": "Approved",
-                                       "leave_type": {"$nin": ["Unpaid Leave", "Work from Home"]}, "from_date": {"$regex": f"^{month}"}}, {"_id": 0}).to_list(50)
+                                       "category": "Permission",
+                                       "over_limit": {"$ne": True}, "leave_type": {"$nin": ["Unpaid Leave", "Work from Home"]}, "from_date": {"$regex": f"^{month}"}}, {"_id": 0}).to_list(50)
         paid_leave_days = sum(l["days"] for l in paid_leaves)
         
         payable_days = present_days + paid_leave_days

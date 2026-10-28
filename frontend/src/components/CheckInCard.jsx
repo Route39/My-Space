@@ -112,6 +112,11 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
     }
     catch (e) {
       const serverMsg = e.response?.data?.detail;
+      if (serverMsg === "Already checked in") {
+        toast.info("You are already checked in. Refreshing…");
+        onChange && onChange();
+        return;
+      }
       const msg = serverMsg || locError || "Check-in failed";
       setGeoAlert({ type: "geofence_denied", message: msg });
       toast.error(msg);
