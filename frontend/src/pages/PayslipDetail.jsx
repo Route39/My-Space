@@ -68,6 +68,7 @@ export default function PayslipDetail() {
     const overtime = Number(payroll.overtime || 0);
     const incentive = Number(payroll.incentive || 0);
     const extraDuty = Number(payroll.extra_duty || 0);
+    const extraDay = Number(payroll.extra_day || 0);
     const lop = Number(payroll.lop || 0);
     const deduction = Number(payroll.deduction || 0);
     const pf = Number(payroll.pf || 0);
@@ -80,7 +81,8 @@ export default function PayslipDetail() {
       salary +
         overtime +
         incentive +
-        extraDuty -
+        extraDuty +
+        extraDay -
         lop -
         deduction -
         pf -
@@ -160,6 +162,7 @@ export default function PayslipDetail() {
       ["Overtime", payroll.overtime],
       ["Incentive", payroll.incentive],
       ["Extra Duty", payroll.extra_duty],
+      ["Extra Day", payroll.extra_day],
     ];
 
     const deductions = [
@@ -300,6 +303,7 @@ export default function PayslipDetail() {
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <MoneyInput label="Basic Salary" value={payroll.salary} disabled />
+              <MoneyInput label="Extra Day" value={payroll.extra_day} disabled />
               <MoneyInput
                 label="Overtime"
                 value={payroll.overtime}

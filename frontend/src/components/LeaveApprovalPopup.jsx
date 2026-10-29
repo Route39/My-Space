@@ -166,7 +166,7 @@ export default function LeaveApprovalPopup() {
               </div>
             </div>
             <p className="text-xs font-medium text-slate-700 bg-white p-2 rounded-lg border border-slate-200 mb-2 shadow-sm">
-              {l.category} {l.category === "Half Day" ? `(${l.half_day_type})` : l.category === "Permission" ? `(${l.permission_hours} hrs)` : ""}
+              {l.category} {l.category === "Half Day" ? `(${l.half_day_type})` : l.category === "Permission" ? `(${fmtPerm(l)})` : ""}
               <br />
               <span className="text-slate-500 font-normal mt-0.5 inline-block">
                 {dateStr(l.from_date)}{l.category === "Full Day" ? ` → ${dateStr(l.to_date)}` : ""}
@@ -188,3 +188,5 @@ export default function LeaveApprovalPopup() {
     document.body
   );
 }
+
+function fmtPerm(l) { const h = +l.permission_hours || 0; const m = +l.permission_minutes || 0; return ((h ? h + "h" : "") + (m ? (h ? " " : "") + m + "m" : "")) || "0h"; }

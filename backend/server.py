@@ -1,3 +1,4 @@
+import calendar
 from dotenv import load_dotenv
 from pathlib import Path
 import os
@@ -229,6 +230,7 @@ class LeaveIn(BaseModel):
     category: str = "Full Day"
     half_day_type: Optional[str] = None
     permission_hours: Optional[str] = None
+    permission_minutes: Optional[str] = None
 class ChatMsgIn(BaseModel):
     message: str
     mentions: List[str] = []
@@ -1362,6 +1364,8 @@ async def all_attendance(date: Optional[str] = None, department: Optional[str] =
             "check_in_office": a.get("check_in_office") if a else None,
             "check_in_place": a.get("check_in_place") if a else None,
             "check_in_distance_m": a.get("check_in_distance_m") if a else None,
+            "status_reason": a.get("status_reason") if a else None,
+            "status_reason_by": a.get("status_reason_by") if a else None,
         })
     if status and status != "all":
         rows = [r for r in rows if r["status"] == status]
@@ -1429,16 +1433,21 @@ async def edit_attendance(att_id: str, body: AttendanceEditIn, user: dict = Depe
 
 @api.post("/attendance/mark")
 async def mark_attendance(employee_id: str, date: str, status: str,
-                          user: dict = Depends(require_roles("admin"))):
+                          user: dict = Depends(require_roles("admin")), reason: Optional[str] = None):
     emp = await db.employees.find_one({"id": employee_id, "org_id": user["org_id"]}, {"_id": 0})
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
+    extra = {"status_reason": reason.strip(), "status_reason_by": user.get("name") or "Admin",
+             "status_reason_at": now_utc().isoformat()} if reason and reason.strip() else {}
     existing = await db.attendance.find_one({"employee_id": employee_id, "date": date, "org_id": user["org_id"]})
     if existing:
-        await db.attendance.update_one({"id": existing["id"]}, {"$set": {"status": status}})
+        upd = {"$set": {"status": status, **extra}}
+        if not extra:
+            upd["$unset"] = {"status_reason": "", "status_reason_by": "", "status_reason_at": ""}
+        await db.attendance.update_one({"id": existing["id"]}, upd)
         return await db.attendance.find_one({"id": existing["id"]}, {"_id": 0})
     doc = {"id": uid(), "org_id": user["org_id"], "employee_id": employee_id,
-           "date": date, "check_in": None, "check_out": None, "hours": 0, "status": status}
+           "date": date, "check_in": None, "check_out": None, "hours": 0, "status": status, **extra}
     await db.attendance.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -1466,6 +1475,7 @@ async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
            "category": body.category,
            "half_day_type": body.half_day_type,
            "permission_hours": body.permission_hours,
+           "permission_minutes": body.permission_minutes,
            "applied_at": now_utc().isoformat()}
     await db.leaves.insert_one(doc)
     # notify team leader / admins
@@ -1726,6 +1736,7 @@ def month_working_days(month: str) -> int:
 async def generate_payroll(month: str, user: dict = Depends(require_roles("admin"))):
     emps = await db.employees.find({"org_id": user["org_id"], "status": "Active"}, {"_id": 0}).to_list(500)
     wd = month_working_days(month)
+    extra_dim = max(0, calendar.monthrange(int(month[:4]), int(month[5:7]))[1] - 30)
     results = []
     for e in emps:
         salary = e.get("monthly_salary", 0)
@@ -1761,6 +1772,8 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         deduction = prev.get("deduction", 0)
         extras = {k: prev.get(k, 0) for k in EXTRA_KEYS}
         extras["extra_duty_days"] = sun_days
+        extras["extra_day_count"] = extra_dim
+        extras["extra_day"] = round(per_day * extra_dim, 2)  # 31st day pay
         if not prev.get("extra_duty_manual"):
             extras["extra_duty"] = round((salary / 30) * sun_days, 2)  # Sunday duty = salary / 30
         if prev.get("att_manual"):
@@ -1795,13 +1808,13 @@ async def list_payroll(month: str, user: dict = Depends(require_roles("admin", "
     return rows
 
 
-EXTRA_KEYS = ["extra_duty", "pf", "esi", "mess", "advance"]
+EXTRA_KEYS = ["extra_duty", "extra_day", "pf", "esi", "mess", "advance"]
 EMP_KEYS = ["department", "designation", "joining_date", "location", "business_unit",
             "pan_number", "bank_name", "bank_account", "ifsc", "pf_number", "esi_number"]
 
 
 def calc_net(salary, lop, overtime, incentive, deduction, extras):
-    earn = salary + overtime + incentive + extras.get("extra_duty", 0)
+    earn = salary + overtime + incentive + extras.get("extra_duty", 0) + extras.get("extra_day", 0)
     ded = lop + deduction + sum(extras.get(k, 0) for k in ["pf", "esi", "advance"])
     return round(max(0, earn - ded), 2)
 

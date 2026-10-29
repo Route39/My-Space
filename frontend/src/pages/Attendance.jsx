@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/select";
 import { timeStr, shortDate } from "@/lib/format";
 import AttendanceMonthDialog from "@/components/AttendanceMonthDialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 export default function Attendance() {
   const { user } = useAuth();
@@ -175,7 +177,7 @@ function StaffAttendance() {
                     </td>
                     <td className="px-3 py-3 text-slate-600">{timeStr(a.check_out)}</td>
                     <td className="px-3 py-3 text-slate-600">{a.hours ? `${a.hours}h` : "—"}</td>
-                    <td className="px-5 py-3"><StatusBadge status={a.status} /></td>
+                    <td className="px-5 py-3"><StatusBadge status={a.status} />{a.status_reason && <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]" title={a.status_reason}>📝 {a.status_reason}{a.status_reason_by ? " — " + a.status_reason_by : ""}</p>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -212,7 +214,13 @@ function AdminAttendance({ user }) {
   }, []);
   useEffect(() => { load(); }, [date, dept, status, locFilter]);
 
-  const mark = async (empId, st) => { await api.post("/attendance/mark", null, { params: { employee_id: empId, date, status: st } }); toast.success("Attendance updated"); load(); };
+  const [hd, setHd] = useState(null);
+  const [hdReason, setHdReason] = useState("");
+  const mark = async (empId, st, reason) => {
+    if (st === "Half Day" && !reason) { const r = rows.find((x) => x.employee_id === empId); setHdReason(""); setHd({ empId, name: r?.employee_name || r?.name || "" }); return; }
+    await api.post("/attendance/mark", null, { params: { employee_id: empId, date, status: st, ...(reason ? { reason } : {}) } }); toast.success("Attendance updated"); load();
+  };
+  const submitHd = async () => { if (!hdReason.trim()) return; await mark(hd.empId, "Half Day", hdReason.trim()); setHd(null); };
 
   const counts = { Present: 0, Late: 0, "Half Day": 0, Permission: 0, Absent: 0, Leave: 0, Holiday: 0, "Week Off": 0, "Work from Home": 0 };
   rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
@@ -298,7 +306,7 @@ function AdminAttendance({ user }) {
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}</td>
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}</td>
                   <td className="px-3 py-3 text-slate-600">{r.hours ? `${r.hours}h` : "—"}</td>
-                  <td className="px-3 py-3"><StatusBadge status={r.status} /></td>
+                  <td className="px-3 py-3"><StatusBadge status={r.status} />{r.status_reason && <p className="text-[11px] text-slate-500 mt-1 max-w-[180px] truncate" title={r.status_reason}>📝 {r.status_reason}</p>}</td>
                   {(user.role === "admin" || user.role === "admin_staff") && (
                     <td className="px-5 py-3">
                       <Select value={r.status} onValueChange={(v) => mark(r.employee_id, v)}>
@@ -313,6 +321,13 @@ function AdminAttendance({ user }) {
           </table>
         </div>
       </div>
+      <Dialog open={!!hd} onOpenChange={(o) => { if (!o) setHd(null); }}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader><DialogTitle>Half Day Reason{hd?.name ? " – " + hd.name : ""}</DialogTitle></DialogHeader>
+          <textarea autoFocus rows={3} value={hdReason} onChange={(ev) => setHdReason(ev.target.value)} placeholder="Enter reason..." className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          <DialogFooter><Button variant="outline" className="rounded-xl" onClick={() => setHd(null)}>Cancel</Button><Button disabled={!hdReason.trim()} onClick={submitHd} className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white">Submit</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <AttendanceMonthDialog employee={selEmp} onClose={() => setSelEmp(null)} />
     </div>
   );

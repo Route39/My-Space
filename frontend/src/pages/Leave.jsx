@@ -41,7 +41,7 @@ function StaffLeave() {
   const [data, setData] = useState({ balance: null, leaves: [] });
   const [approvedLeaves, setApprovedLeaves] = useState([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1" });
+  const [form, setForm] = useState({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1", permission_minutes: "0" });
   const [busy, setBusy] = useState(false);
 
   const load = async () => { 
@@ -60,7 +60,7 @@ function StaffLeave() {
       await api.post("/leaves", payload);
       toast.success("Leave applied");
       setOpen(false);
-      setForm({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1" });
+      setForm({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1", permission_minutes: "0" });
       load();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
     setBusy(false);
@@ -133,8 +133,8 @@ function StaffLeave() {
                     </div>
                   )}
                   {form.category === "Permission" && (
-                    <div><Label>Hours Early</Label>
-                      <Input type="number" min="1" max="8" className="rounded-xl mt-1" value={form.permission_hours} onChange={(e) => setForm({ ...form, permission_hours: e.target.value })} />
+                    <div><Label>Time Early (Hrs : Min)</Label>
+                      <div className="flex gap-2 mt-1"><Input type="number" min="0" max="8" placeholder="Hrs" className="rounded-xl" value={form.permission_hours} onChange={(e) => setForm({ ...form, permission_hours: e.target.value })} /><Input type="number" min="0" max="59" placeholder="Min" className="rounded-xl" value={form.permission_minutes} onChange={(e) => setForm({ ...form, permission_minutes: e.target.value })} /></div>
                     </div>
                   )}
                 </div>
@@ -182,7 +182,7 @@ function StaffLeave() {
                   <td className="px-5 py-3 font-medium text-slate-700">
                     {l.leave_type}
                     <div className="text-xs text-slate-400 mt-0.5">
-                      {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""}
+                      {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${fmtPerm(l)})` : ""}
                     </div>
                   </td>
                   <td className="px-3 py-3 text-slate-600">{shortDate(l.from_date)}</td>
@@ -253,7 +253,7 @@ function ManagerLeave() {
                     <div>
                       <p className="font-medium text-slate-800">{l.employee_name}</p>
                       <p className="text-xs text-slate-400">
-                        {l.leave_type} · {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""} · {dateStr(l.from_date)}{l.category === "Full Day" && l.from_date !== l.to_date ? ` → ${dateStr(l.to_date)}` : ""}
+                        {l.leave_type} · {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${fmtPerm(l)})` : ""} · {dateStr(l.from_date)}{l.category === "Full Day" && l.from_date !== l.to_date ? ` → ${dateStr(l.to_date)}` : ""}
                       </p>
                       {l.reason && <p className="text-xs text-slate-500 mt-0.5">"{l.reason}"</p>}
                     </div>
@@ -305,7 +305,7 @@ function ManagerLeave() {
                       <td className="px-3 py-3 text-slate-600">
                         {l.leave_type}
                         <div className="text-xs text-slate-400 mt-0.5">
-                          {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""}
+                          {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${fmtPerm(l)})` : ""}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-slate-600">
@@ -407,7 +407,7 @@ function ManagerLeave() {
                           <p className="text-[10px] text-slate-400">
                             {l.leave_type} 
                             <span className="mx-1">·</span> 
-                            {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${l.permission_hours} hrs)` : ""} 
+                            {l.category}{l.category === "Half Day" ? ` (${l.half_day_type})` : l.category === "Permission" ? ` (${fmtPerm(l)})` : ""} 
                             {l.category === "Full Day" ? ` (${l.days} ${l.days === 1 ? 'day' : 'days'})` : ""}
                             <span className="mx-1">·</span> 
                             <span className={stateColor}>{stateStr}</span>
@@ -452,3 +452,5 @@ function ManagerLeave() {
     </div>
   );
 }
+
+function fmtPerm(l) { const h = +l.permission_hours || 0; const m = +l.permission_minutes || 0; return ((h ? h + "h" : "") + (m ? (h ? " " : "") + m + "m" : "")) || "0h"; }
