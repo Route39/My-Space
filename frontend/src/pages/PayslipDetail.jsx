@@ -159,10 +159,10 @@ export default function PayslipDetail() {
 
     const earnings = [
       ["Basic Salary", payroll.salary],
+      ...(Number(payroll.extra_day) > 0 ? [["31st Day Pay", payroll.extra_day]] : []),
       ["Overtime", payroll.overtime],
       ["Incentive", payroll.incentive],
       ["Extra Duty", payroll.extra_duty],
-      ["Extra Day", payroll.extra_day],
     ];
 
     const deductions = [
@@ -303,7 +303,7 @@ export default function PayslipDetail() {
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <MoneyInput label="Basic Salary" value={payroll.salary} disabled />
-              <MoneyInput label="Extra Day" value={payroll.extra_day} disabled />
+              {Number(payroll.extra_day) > 0 && <MoneyInput label="31st Day Pay" value={payroll.extra_day} disabled />}
               <MoneyInput
                 label="Overtime"
                 value={payroll.overtime}

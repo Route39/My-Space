@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LogIn, Coffee, Flag, CircleDot, List, CalendarDays, MapPin } from "lucide-react";
+import { LogIn, Coffee, Flag, CircleDot, List, CalendarDays, MapPin, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -167,7 +167,7 @@ function StaffAttendance() {
                   <tr key={a.id} className="border-t border-slate-50 hover:bg-slate-50/80 transition-colors">
                     <td className="px-5 py-3 font-medium text-slate-700">{shortDate(a.date)}</td>
                     <td className="px-3 py-3 text-slate-600">
-                      <div>{timeStr(a.check_in)}</div>
+                      <div>{timeStr(a.check_in)}</div><LocLink addr={a.check_in_address} lat={a.check_in_lat} lng={a.check_in_lng} />
                       {a.check_in_office && (
                         <div className="flex items-center gap-1 text-[11px] text-emerald-600 font-medium mt-0.5">
                           <MapPin className="w-3 h-3" />
@@ -175,9 +175,9 @@ function StaffAttendance() {
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-slate-600">{timeStr(a.check_out)}</td>
+                    <td className="px-3 py-3 text-slate-600">{timeStr(a.check_out)}<LocLink addr={a.check_out_address} lat={a.check_out_lat} lng={a.check_out_lng} /></td>
                     <td className="px-3 py-3 text-slate-600">{a.hours ? `${a.hours}h` : "—"}</td>
-                    <td className="px-5 py-3"><StatusBadge status={a.status} />{a.status_reason && <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]" title={a.status_reason}>📝 {a.status_reason}{a.status_reason_by ? " — " + a.status_reason_by : ""}</p>}</td>
+                    <td className="px-5 py-3"><StatusBadge status={a.status} />{a.status_reason_by && <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">Marked by {a.status_reason_by}</p>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -220,7 +220,7 @@ function AdminAttendance({ user }) {
     if (st === "Half Day" && !reason) { const r = rows.find((x) => x.employee_id === empId); setHdReason(""); setHd({ empId, name: r?.employee_name || r?.name || "" }); return; }
     await api.post("/attendance/mark", null, { params: { employee_id: empId, date, status: st, ...(reason ? { reason } : {}) } }); toast.success("Attendance updated"); load();
   };
-  const submitHd = async () => { if (!hdReason.trim()) return; await mark(hd.empId, "Half Day", hdReason.trim()); setHd(null); };
+  const submitHd = async () => { if (!hdReason.trim()) return; await mark(hd.empId, hd.status || "Half Day", hdReason.trim()); setHd(null); };
 
   const counts = { Present: 0, Late: 0, "Half Day": 0, Permission: 0, Absent: 0, Leave: 0, Holiday: 0, "Week Off": 0, "Work from Home": 0 };
   rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
@@ -303,10 +303,10 @@ function AdminAttendance({ user }) {
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}</td>
-                  <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}</td>
+                  <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}<LocLink addr={r.check_in_address} lat={r.check_in_lat} lng={r.check_in_lng} /></td>
+                  <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}<LocLink addr={r.check_out_address} lat={r.check_out_lat} lng={r.check_out_lng} /></td>
                   <td className="px-3 py-3 text-slate-600">{r.hours ? `${r.hours}h` : "—"}</td>
-                  <td className="px-3 py-3"><StatusBadge status={r.status} />{r.status_reason && <p className="text-[11px] text-slate-500 mt-1 max-w-[180px] truncate" title={r.status_reason}>📝 {r.status_reason}</p>}</td>
+                  <td className="px-3 py-3"><StatusBadge status={r.status} />{(r.status_reason || r.status === "Half Day") && <p className="text-[11px] text-slate-500 mt-1 max-w-[200px] flex items-center gap-1"><span className="truncate" title={r.status_reason || ""}>{r.status_reason || "Add reason"}{r.status_reason_by ? " — " + r.status_reason_by : ""}</span><button type="button" title="Edit reason" onClick={(ev) => { ev.stopPropagation(); setHdReason(r.status_reason || ""); setHd({ empId: r.employee_id, name: r.name, status: r.status }); }} className="text-emerald-600 hover:text-emerald-800 shrink-0"><Pencil className="w-3 h-3" /></button></p>}</td>
                   {(user.role === "admin" || user.role === "admin_staff") && (
                     <td className="px-5 py-3">
                       <Select value={r.status} onValueChange={(v) => mark(r.employee_id, v)}>
@@ -330,5 +330,16 @@ function AdminAttendance({ user }) {
       </Dialog>
       <AttendanceMonthDialog employee={selEmp} onClose={() => setSelEmp(null)} />
     </div>
+  );
+}
+
+function LocLink({ addr, lat, lng }) {
+  if (!addr && (lat === null || lat === undefined)) return null;
+  const href = lat !== null && lat !== undefined ? `https://www.google.com/maps?q=${lat},${lng}` : `https://www.google.com/maps/search/${encodeURIComponent(addr)}`;
+  return (
+    <a href={href} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title={addr || ""}
+      className="mt-0.5 flex items-center gap-0.5 text-[10px] text-emerald-700 hover:underline max-w-[200px]">
+      <MapPin className="w-3 h-3 shrink-0" /><span className="truncate">{addr || `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`}</span>
+    </a>
   );
 }

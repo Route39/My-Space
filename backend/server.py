@@ -724,6 +724,24 @@ async def geocode_address(body: GeocodeIn, user: dict = Depends(require_roles("a
     raise HTTPException(status_code=404, detail="Address not found. Enter area, city, or paste coordinates like 11.1085, 77.3411.")
 
 
+async def addr_from_latlng(lat, lng):
+    import httpx
+    if GOOGLE_MAPS_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=6) as cl:
+                d = (await cl.get("https://maps.googleapis.com/maps/api/geocode/json", params={"latlng": f"{lat},{lng}", "key": GOOGLE_MAPS_KEY})).json()
+                if d.get("status") == "OK" and d.get("results"):
+                    return d["results"][0]["formatted_address"]
+        except Exception as e:
+            logger.warning(f"addr_from_latlng google: {e}")
+    try:
+        async with httpx.AsyncClient(timeout=6, headers=GEOCODER_HEADERS) as cl:
+            d = (await cl.get("https://nominatim.openstreetmap.org/reverse", params={"lat": lat, "lon": lng, "format": "jsonv2"})).json()
+            return d.get("display_name")
+    except Exception:
+        return None
+
+
 @api.post("/locations/reverse")
 async def reverse_geocode(body: ReverseGeocodeIn, user: dict = Depends(require_roles("admin"))):
     import httpx
@@ -1151,6 +1169,9 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
         geo = {"check_in_lat": body.lat, "check_in_lng": body.lng, "check_in_distance_m": round(dist),
                "check_in_office": hit["name"], "check_in_place": hit["kind"]}
         
+    if body.lat is not None and body.lng is not None:
+        geo.setdefault("check_in_lat", body.lat); geo.setdefault("check_in_lng", body.lng)
+        geo["check_in_address"] = await addr_from_latlng(body.lat, body.lng)
     shift = await db.shifts.find_one({"id": emp.get("shift_id")}, {"_id": 0}) if emp.get("shift_id") else None
     ci = now_ist().isoformat()
     status = compute_status(ci, shift)
@@ -1173,12 +1194,14 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
     if existing:
         new_status = status if existing.get("status") in ("Leave", "Week Off") else existing.get("status", status)
         upd = {"check_in": ci, "status": new_status, "late_checkin": late_checkin, **geo}
+        if new_status == "Half Day" and not existing.get("status_reason"):
+            upd.update(SYS_HALF_DAY)
         await db.attendance.update_one({"id": existing["id"]}, {"$set": upd})
         doc = await db.attendance.find_one({"id": existing["id"]}, {"_id": 0})
     else:
         doc = {"id": uid(), "org_id": user["org_id"], "employee_id": emp["id"],
                "date": today, "check_in": ci, "check_out": None, "hours": 0, "status": status,
-               "late_checkin": late_checkin, **geo}
+               "late_checkin": late_checkin, **geo, **(SYS_HALF_DAY if status == "Half Day" else {})}
         await db.attendance.insert_one(doc)
         doc.pop("_id", None)
     doc["late_count_month"] = late_count
@@ -1189,6 +1212,7 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
     return doc
 
 
+SYS_HALF_DAY = {"status_reason": "System update", "status_reason_by": "System"}
 AUTO_CHECKOUT_FREE_DAYS_PER_MONTH = 3
 
 
@@ -1202,12 +1226,12 @@ async def auto_checkout_penalty(att: dict) -> dict:
         "employee_id": att["employee_id"], "id": {"$ne": att["id"]},
         "date": {"$regex": f"^{month}"}, "auto_checkout": True})
     if prior >= AUTO_CHECKOUT_FREE_DAYS_PER_MONTH:
-        return {"status": "Half Day", "auto_half_day": True}
+        return {"status": "Half Day", "auto_half_day": True, **SYS_HALF_DAY}
     return {}
 
 
 @api.post("/attendance/checkout")
-async def checkout(user: dict = Depends(get_current_user)):
+async def checkout(body: Optional[CheckInIn] = None, user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
     if not emp:
         raise HTTPException(status_code=400, detail="No employee profile")
@@ -1231,6 +1255,8 @@ async def checkout(user: dict = Depends(get_current_user)):
     limit = ci_dt + timedelta(hours=shift_auto_hours(shift))
     now = now_ist()
     update = {}
+    if body and body.lat is not None and body.lng is not None:
+        update.update(check_out_lat=body.lat, check_out_lng=body.lng, check_out_address=await addr_from_latlng(body.lat, body.lng))
     if now >= limit:  # forgot to checkout earlier -> cap at 10 hrs
         now = limit
         update["auto_checkout"] = True
@@ -1366,6 +1392,10 @@ async def all_attendance(date: Optional[str] = None, department: Optional[str] =
             "check_in_distance_m": a.get("check_in_distance_m") if a else None,
             "status_reason": a.get("status_reason") if a else None,
             "status_reason_by": a.get("status_reason_by") if a else None,
+            "check_in_address": a.get("check_in_address") if a else None,
+            "check_out_address": a.get("check_out_address") if a else None,
+            "check_in_lat": a.get("check_in_lat") if a else None, "check_in_lng": a.get("check_in_lng") if a else None,
+            "check_out_lat": a.get("check_out_lat") if a else None, "check_out_lng": a.get("check_out_lng") if a else None,
         })
     if status and status != "all":
         rows = [r for r in rows if r["status"] == status]
@@ -1437,7 +1467,7 @@ async def mark_attendance(employee_id: str, date: str, status: str,
     emp = await db.employees.find_one({"id": employee_id, "org_id": user["org_id"]}, {"_id": 0})
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
-    extra = {"status_reason": reason.strip(), "status_reason_by": user.get("name") or "Admin",
+    extra = {"status_reason": reason.strip(), "status_reason_by": "System" if reason.strip() == "System update" else (user.get("name") or "Admin"),
              "status_reason_at": now_utc().isoformat()} if reason and reason.strip() else {}
     existing = await db.attendance.find_one({"employee_id": employee_id, "date": date, "org_id": user["org_id"]})
     if existing:
@@ -1562,9 +1592,9 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
     while d <= end:
         cat = leave.get("category")
         if cat == "Half Day":
-            await mark_attendance(leave["employee_id"], d.isoformat(), "Half Day", user)
+            await mark_attendance(leave["employee_id"], d.isoformat(), "Half Day", user, "Leave approved")
         elif cat == "Permission":
-            await mark_attendance(leave["employee_id"], d.isoformat(), perm_status, user)
+            await mark_attendance(leave["employee_id"], d.isoformat(), perm_status, user, "System update" if perm_status == "Half Day" else None)
         else:
             status_to_mark = "Work from Home" if leave["leave_type"] == "Work from Home" else "Leave"
             await mark_attendance(leave["employee_id"], d.isoformat(), status_to_mark, user)
@@ -1746,6 +1776,7 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         overtime_hours = 0
         DAY_VALUE = {"Present": 1, "Late": 1, "Work from Home": 1, "Holiday": 1, "Half Day": 0.5}
         sun_days = 0
+        d31 = 0
         for a in att:
             v = DAY_VALUE.get(a.get("status"), 0)
             if date.fromisoformat(a["date"][:10]).weekday() == 6:
@@ -1753,6 +1784,8 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
                     sun_days += v
             else:
                 present_days += v
+                if int(a["date"][8:10]) == 31:
+                    d31 += v
             if a.get("hours", 0) > 9:
                 overtime_hours += a["hours"] - 9
         # paid approved leaves
@@ -1764,7 +1797,8 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         paid_leave_days = sum(l["days"] for l in paid_leaves)
         
         payable_days = present_days + paid_leave_days
-        lop_days = max(0, wd - payable_days)
+        wd31 = 1 if extra_dim and date(int(month[:4]), int(month[5:7]), 31).weekday() != 6 else 0
+        lop_days = max(0, (wd - wd31) - (payable_days - d31))
         lop = round(per_day * lop_days, 2)
         overtime = 0  # round((per_day / 8) * overtime_hours, 2)  # overtime disabled
         prev = await db.payroll.find_one({"employee_id": e["id"], "month": month}) or {}
@@ -1772,15 +1806,15 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
         deduction = prev.get("deduction", 0)
         extras = {k: prev.get(k, 0) for k in EXTRA_KEYS}
         extras["extra_duty_days"] = sun_days
-        extras["extra_day_count"] = extra_dim
-        extras["extra_day"] = round(per_day * extra_dim, 2)  # 31st day pay
+        extras["extra_day_count"] = d31
+        extras["extra_day"] = round(per_day * d31, 2)  # 31st day pay (only if present)
         if not prev.get("extra_duty_manual"):
             extras["extra_duty"] = round((salary / 30) * sun_days, 2)  # Sunday duty = salary / 30
         if prev.get("att_manual"):
             wd_m = prev.get("working_days") or wd
             lop_days = max(0, wd_m - max(0, prev.get("present_days", 0) - sun_days))
             lop = round((salary / 30) * lop_days, 2)
-            extras.update(att_manual=True, working_days=wd_m, present_days=prev.get("present_days", 0), weekly_off=prev.get("weekly_off", 0))
+            extras.update(extra_day=0, extra_day_count=0, att_manual=True, working_days=wd_m, present_days=prev.get("present_days", 0), weekly_off=prev.get("weekly_off", 0))
         net = calc_net(salary, lop, overtime, incentive, deduction, extras)
         existing = await db.payroll.find_one({"employee_id": e["id"], "month": month})
         doc = {"employee_id": e["id"], "employee_name": e["name"],

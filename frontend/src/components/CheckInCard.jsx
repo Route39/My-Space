@@ -142,7 +142,9 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
   const doCheckOut = async () => {
     setBusy(true);
     try {
-      await api.post("/attendance/checkout");
+      let loc = {};
+      try { const pos = await getPosition(); loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }; } catch (_) { /* checkout without GPS */ }
+      await api.post("/attendance/checkout", loc);
       setCelebrate(true); setTimeout(() => setCelebrate(false), 1200);
       toast.success("Checked out. Have a good day!");
       onChange && onChange();

@@ -72,9 +72,11 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
   const present = manual ? n(p.present_days) : n(p.auto_present_days ?? p.present_days) + n(p.paid_leave_days) + extraDays;
   const woff = manual ? n(p.weekly_off) : Math.max(0, sundays - extraDays);
   const extraDim = (() => { const m = String(p.month || ""); if (!/^\d{4}-\d{2}/.test(m)) return 0; return Math.max(0, new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate() - 30); })();
-  const lopDays = Math.max(0, wd - Math.max(0, present - extraDays));
+  const d31 = manual ? 0 : n(p.extra_day_count);
+  const wd31 = !manual && extraDim > 0 && new Date(Date.UTC(+yy, +mm - 1, 31)).getUTCDay() !== 0 ? 1 : 0;
+  const lopDays = Math.max(0, (wd - wd31) - (Math.max(0, present - extraDays) - d31));
   const lop = r2((n(p.salary) / 30) * lopDays);
-  const extraDayPay = r2((n(p.salary) / 30) * extraDim);
+  const extraDayPay = r2((n(p.salary) / 30) * d31);
   const extraManual = !!p.extra_duty_manual;
   const extraDuty = extraManual ? n(p.extra_duty) : r2((n(p.salary) / DAY_BASE) * extraDays);
   const autos = Math.max(0, Math.floor(n(p.autos)));
@@ -118,7 +120,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
       const body = { employee: Object.fromEntries(EMP_KEYS.map((k) => [k, e[k] ?? ""])) };
       AMT_KEYS.forEach((k) => { body[k] = n(p[k]); });
       body.incentive = incentiveTotal; body.incentive_base = incBase; body.autos = autos; body.mess = 0;
-      Object.assign(body, { att_manual: manual, lop, lop_days: lopDays, extra_duty: extraDuty, extra_duty_manual: extraManual, extra_duty_days: extraDays, extra_day: extraDayPay, extra_day_count: extraDim });
+      Object.assign(body, { att_manual: manual, lop, lop_days: lopDays, extra_duty: extraDuty, extra_duty_manual: extraManual, extra_duty_days: extraDays, extra_day: extraDayPay, extra_day_count: d31 });
       if (manual) Object.assign(body, { working_days: n(p.working_days), present_days: n(p.present_days), weekly_off: n(p.weekly_off) });
       await api.put(`/payroll/${id}/adjust`, body);
       setMsg("Saved ✓"); await load();
@@ -211,7 +213,7 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
               <thead><tr className="bg-emerald-50 font-semibold"><td className="px-3 py-1.5">Description</td><td className="px-3 py-1.5 text-right">Amount (₹)</td></tr></thead>
               <tbody>
                 {row("Fixed Salary", amt("salary", false))}
-                {extraDim > 0 && row("Extra Day", <span>{fmt(extraDayPay)}</span>)}
+                {d31 > 0 && row("31st Day Pay", <span>{fmt(extraDayPay)}</span>)}
                 {/* {row(`Overtime (${n(p.overtime_hours)}h)`, amt("overtime", false))} */}
                 {row("Extra Duty" /* `Extra Duty (${extraDays} Sundays)` */, edit
                   ? <span className="inline-flex items-center gap-1">{extraManual && <button onClick={() => setP({ ...p, extra_duty_manual: false })} className="text-[10px] text-emerald-700 underline">auto</button>}<input type="number" value={extraManual ? (p.extra_duty ?? 0) : extraDuty} onChange={(ev) => setP({ ...p, extra_duty: ev.target.value, extra_duty_manual: true })} className="w-24 sm:w-28 text-right bg-white border border-emerald-200 rounded px-1.5 py-0.5 text-xs" /></span>
