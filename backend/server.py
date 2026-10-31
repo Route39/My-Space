@@ -1347,6 +1347,7 @@ async def my_attendance(range: str = "month", month: Optional[str] = None, user:
     todoc = await db.attendance.find_one({"employee_id": emp["id"], "date": today.isoformat()}, {"_id": 0})
     if todoc:
         todoc["server_now"] = now_ist().isoformat()
+    await attach_manual_history(hist + ([todoc] if todoc else []))
     return {"today": todoc, "history": hist}
 
 
@@ -1397,6 +1398,10 @@ async def all_attendance(date: Optional[str] = None, department: Optional[str] =
             "check_in_lat": a.get("check_in_lat") if a else None, "check_in_lng": a.get("check_in_lng") if a else None,
             "check_out_lat": a.get("check_out_lat") if a else None, "check_out_lng": a.get("check_out_lng") if a else None,
         })
+    _amap = {a["id"]: a for a in att}
+    for r in rows:
+        r.update(manual_fields(_amap.get(r.get("attendance_id"))))
+    await attach_manual_history(rows, id_key="attendance_id")
     if status and status != "all":
         rows = [r for r in rows if r["status"] == status]
     return rows
@@ -1438,7 +1443,7 @@ async def employee_month_attendance(emp_id: str, month: Optional[str] = None,
             st = None
         if st:
             summary[st] = summary.get(st, 0) + 1
-        days.append({"date": ds, "status": st,
+        days.append({"date": ds, "status": st, **manual_fields(a),
                      "check_in": a.get("check_in") if a else None,
                      "check_out": a.get("check_out") if a else None,
                      "hours": a.get("hours", 0) if a else 0,
@@ -1457,30 +1462,114 @@ async def edit_attendance(att_id: str, body: AttendanceEditIn, user: dict = Depe
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
     if "check_in" in upd and "check_out" in upd:
         upd["hours"] = hours_between(upd["check_in"], upd["check_out"])
+    if upd.get("status") and upd["status"] != existing.get("status"):
+        upd.update(await record_manual_change(user, att_id, existing["employee_id"], existing["date"],
+                                              existing.get("status"), upd["status"]))
     await db.attendance.update_one({"id": att_id, "org_id": user["org_id"]}, {"$set": upd})
-    return await db.attendance.find_one({"id": att_id, "org_id": user["org_id"]}, {"_id": 0})
+    rec = await db.attendance.find_one({"id": att_id, "org_id": user["org_id"]}, {"_id": 0})
+    await attach_manual_history([rec])
+    return rec
+
+
+ROLE_LABELS = {"admin": "Admin", "admin_staff": "Admin + Staff", "team_leader": "Team Leader"}
+MANUAL_FIELDS = ("is_manual", "manual_from", "manual_to", "changed_by", "changed_by_name", "changed_by_role", "changed_at")
+AUDIT_PUBLIC = ("from_status", "to_status", "changed_by_name", "changed_by_role", "changed_at", "reason")
+
+
+def role_label(role: Optional[str]) -> str:
+    return ROLE_LABELS.get(role or "") or (role or "").replace("_", " ").title()
+
+
+def manual_fields(a: Optional[dict]) -> dict:
+    a = a or {}
+    return {"is_manual": bool(a.get("is_manual")), "manual_from": a.get("manual_from"), "manual_to": a.get("manual_to"),
+            "changed_by_name": a.get("changed_by_name"), "changed_by_role": a.get("changed_by_role"),
+            "changed_at": a.get("changed_at")}
+
+
+async def effective_status(org_id: str, employee_id: str, date_str: str, existing: Optional[dict] = None) -> str:
+    if existing:
+        return existing.get("status")
+    leave = await db.leaves.find_one({"org_id": org_id, "employee_id": employee_id, "status": "Approved",
+                                      "from_date": {"$lte": date_str}, "to_date": {"$gte": date_str}})
+    if leave:
+        return "Leave"
+    if is_week_off(date_str):
+        return "Week Off"
+    return "Absent"
+
+
+async def record_manual_change(user: dict, att_id: str, employee_id: str, date_str: str,
+                               from_status: Optional[str], to_status: str, reason: Optional[str] = None) -> dict:
+    now = now_utc().isoformat()
+    who = user.get("name") or "Admin"
+    await db.attendance_audit_log.insert_one({
+        "id": uid(), "org_id": user["org_id"], "attendance_id": att_id, "employee_id": employee_id,
+        "date": date_str, "from_status": from_status, "to_status": to_status,
+        "changed_by": user["id"], "changed_by_name": who, "changed_by_role": role_label(user.get("role")),
+        "changed_at": now, "reason": reason,
+    })
+    return {"is_manual": True, "manual_from": from_status, "manual_to": to_status,
+            "changed_by": user["id"], "changed_by_name": who,
+            "changed_by_role": role_label(user.get("role")), "changed_at": now}
+
+
+async def attach_manual_history(records: list, id_key: str = "id") -> None:
+    ids = [r[id_key] for r in records if r.get("is_manual") and r.get(id_key)]
+    if not ids:
+        return
+    logs = await db.attendance_audit_log.find({"attendance_id": {"$in": ids}}, {"_id": 0}).sort("changed_at", 1).to_list(5000)
+    by_att: dict = {}
+    for l in logs:
+        by_att.setdefault(l["attendance_id"], []).append({k: l.get(k) for k in AUDIT_PUBLIC})
+    for r in records:
+        if r.get("is_manual"):
+            r["manual_history"] = by_att.get(r.get(id_key), [])
+
+
+async def apply_attendance_mark(employee_id: str, date_str: str, status: str, user: dict,
+                                reason: Optional[str] = None, manual: bool = True) -> dict:
+    emp = await db.employees.find_one({"id": employee_id, "org_id": user["org_id"]}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    reason_txt = reason.strip() if reason and reason.strip() else None
+    extra = {"status_reason": reason_txt, "status_reason_by": user.get("name") or "Admin",
+             "status_reason_at": now_utc().isoformat()} if reason_txt else {}
+    existing = await db.attendance.find_one({"employee_id": employee_id, "date": date_str, "org_id": user["org_id"]})
+    prev = await effective_status(user["org_id"], employee_id, date_str, existing)
+    changed = prev != status
+
+    if existing:
+        sets, unsets = {"status": status, **extra}, {}
+        if changed and not extra:
+            unsets.update({"status_reason": "", "status_reason_by": "", "status_reason_at": ""})
+        if changed:
+            if manual:
+                sets.update(await record_manual_change(user, existing["id"], employee_id, date_str, prev, status, reason_txt))
+            else:
+                unsets.update({k: "" for k in MANUAL_FIELDS})
+        upd = {"$set": sets}
+        if unsets:
+            upd["$unset"] = unsets
+        await db.attendance.update_one({"id": existing["id"]}, upd)
+        rec = await db.attendance.find_one({"id": existing["id"]}, {"_id": 0})
+        await attach_manual_history([rec])
+        return rec
+
+    doc = {"id": uid(), "org_id": user["org_id"], "employee_id": employee_id,
+           "date": date_str, "check_in": None, "check_out": None, "hours": 0, "status": status, **extra}
+    if manual and changed:
+        doc.update(await record_manual_change(user, doc["id"], employee_id, date_str, prev, status, reason_txt))
+    await db.attendance.insert_one(doc)
+    doc.pop("_id", None)
+    await attach_manual_history([doc])
+    return doc
 
 
 @api.post("/attendance/mark")
 async def mark_attendance(employee_id: str, date: str, status: str,
                           user: dict = Depends(require_roles("admin")), reason: Optional[str] = None):
-    emp = await db.employees.find_one({"id": employee_id, "org_id": user["org_id"]}, {"_id": 0})
-    if not emp:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    extra = {"status_reason": reason.strip(), "status_reason_by": "System" if reason.strip() == "System update" else (user.get("name") or "Admin"),
-             "status_reason_at": now_utc().isoformat()} if reason and reason.strip() else {}
-    existing = await db.attendance.find_one({"employee_id": employee_id, "date": date, "org_id": user["org_id"]})
-    if existing:
-        upd = {"$set": {"status": status, **extra}}
-        if not extra:
-            upd["$unset"] = {"status_reason": "", "status_reason_by": "", "status_reason_at": ""}
-        await db.attendance.update_one({"id": existing["id"]}, upd)
-        return await db.attendance.find_one({"id": existing["id"]}, {"_id": 0})
-    doc = {"id": uid(), "org_id": user["org_id"], "employee_id": employee_id,
-           "date": date, "check_in": None, "check_out": None, "hours": 0, "status": status, **extra}
-    await db.attendance.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    return await apply_attendance_mark(employee_id, date, status, user, reason, manual=True)
 
 
 # ---------------- leave ----------------
@@ -1592,12 +1681,12 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
     while d <= end:
         cat = leave.get("category")
         if cat == "Half Day":
-            await mark_attendance(leave["employee_id"], d.isoformat(), "Half Day", user, "Leave approved")
+            await apply_attendance_mark(leave["employee_id"], d.isoformat(), "Half Day", user, "Leave approved", manual=False)
         elif cat == "Permission":
-            await mark_attendance(leave["employee_id"], d.isoformat(), perm_status, user, "System update" if perm_status == "Half Day" else None)
+            await apply_attendance_mark(leave["employee_id"], d.isoformat(), perm_status, user, "System update" if perm_status == "Half Day" else None, manual=False)
         else:
             status_to_mark = "Work from Home" if leave["leave_type"] == "Work from Home" else "Leave"
-            await mark_attendance(leave["employee_id"], d.isoformat(), status_to_mark, user)
+            await apply_attendance_mark(leave["employee_id"], d.isoformat(), status_to_mark, user, manual=False)
         d += timedelta(days=1)
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
@@ -2659,6 +2748,7 @@ INDEXES = {
     "announcements": [["org_id"]],
     "notices": [["org_id"]],
     "activities": [["org_id"]],
+    "attendance_audit_log": [["attendance_id", "changed_at"], ["org_id", "employee_id"]],
 }
 for _c in ["users", "employees", "attendance", "tasks", "myspace_items", "myspace_files", "payroll", "shifts",
            "leaves", "leave_balances", "chats", "chat_groups", "notifications", "announcements", "notices",

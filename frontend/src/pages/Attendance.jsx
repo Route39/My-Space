@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { timeStr, shortDate } from "@/lib/format";
 import AttendanceMonthDialog from "@/components/AttendanceMonthDialog";
+import ManualChangeNote from "@/components/ManualChangeNote";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -90,7 +91,7 @@ function MonthCalendar({ month, history }) {
           if (!d) return <div key={"e" + i} />;
           const rec = byDate[`${month}-${String(d).padStart(2, "0")}`];
           return (
-            <div key={d} title={rec ? `${rec.status}${rec.hours ? " · " + rec.hours + "h" : ""}` : ""}
+            <div key={d} title={rec ? `${rec.status}${rec.hours ? " · " + rec.hours + "h" : ""}${rec.is_manual ? ` · Manually changed: ${rec.manual_from || "—"} → ${rec.manual_to || rec.status} by ${rec.changed_by_name || "Admin"}${rec.changed_by_role ? " (" + rec.changed_by_role + ")" : ""}` : ""}` : ""}
               className={`rounded-lg sm:rounded-xl min-h-[44px] sm:min-h-[64px] p-1 sm:p-2 flex flex-col justify-between border border-slate-100 ${rec ? CAL_COLORS[rec.status] || "bg-slate-100 text-slate-600" : "bg-white text-slate-400"}`}>
               <span className="text-xs sm:text-sm font-semibold">{d}</span>
               {rec && <span className="text-[8px] sm:text-[10px] leading-tight font-medium truncate">{rec.status}</span>}
@@ -177,7 +178,7 @@ function StaffAttendance() {
                     </td>
                     <td className="px-3 py-3 text-slate-600">{timeStr(a.check_out)}<LocLink addr={a.check_out_address} lat={a.check_out_lat} lng={a.check_out_lng} /></td>
                     <td className="px-3 py-3 text-slate-600">{a.hours ? `${a.hours}h` : "—"}</td>
-                    <td className="px-5 py-3"><StatusBadge status={a.status} />{a.status_reason_by && <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">Marked by {a.status_reason_by}</p>}</td>
+                    <td className="px-5 py-3"><StatusBadge status={a.status} /><ManualChangeNote rec={a} />{a.status_reason_by && <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">Marked by {a.status_reason_by}</p>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -306,7 +307,7 @@ function AdminAttendance({ user }) {
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_in)}<LocLink addr={r.check_in_address} lat={r.check_in_lat} lng={r.check_in_lng} /></td>
                   <td className="px-3 py-3 text-slate-600">{timeStr(r.check_out)}<LocLink addr={r.check_out_address} lat={r.check_out_lat} lng={r.check_out_lng} /></td>
                   <td className="px-3 py-3 text-slate-600">{r.hours ? `${r.hours}h` : "—"}</td>
-                  <td className="px-3 py-3"><StatusBadge status={r.status} />{(r.status_reason || r.status === "Half Day") && <p className="text-[11px] text-slate-500 mt-1 max-w-[200px] flex items-center gap-1"><span className="truncate" title={r.status_reason || ""}>{r.status_reason || "Add reason"}{r.status_reason_by ? " — " + r.status_reason_by : ""}</span><button type="button" title="Edit reason" onClick={(ev) => { ev.stopPropagation(); setHdReason(r.status_reason || ""); setHd({ empId: r.employee_id, name: r.name, status: r.status }); }} className="text-emerald-600 hover:text-emerald-800 shrink-0"><Pencil className="w-3 h-3" /></button></p>}</td>
+                  <td className="px-3 py-3"><StatusBadge status={r.status} /><ManualChangeNote rec={r} />{(r.status_reason || r.status === "Half Day") && <p className="text-[11px] text-slate-500 mt-1 max-w-[200px] flex items-center gap-1"><span className="truncate" title={r.status_reason || ""}>{r.status_reason || "Add reason"}{r.status_reason_by ? " — " + r.status_reason_by : ""}</span><button type="button" title="Edit reason" onClick={(ev) => { ev.stopPropagation(); setHdReason(r.status_reason || ""); setHd({ empId: r.employee_id, name: r.name, status: r.status }); }} className="text-emerald-600 hover:text-emerald-800 shrink-0"><Pencil className="w-3 h-3" /></button></p>}</td>
                   {(user.role === "admin" || user.role === "admin_staff") && (
                     <td className="px-5 py-3">
                       <Select value={r.status} onValueChange={(v) => mark(r.employee_id, v)}>

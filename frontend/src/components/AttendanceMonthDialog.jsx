@@ -94,7 +94,7 @@ export default function AttendanceMonthDialog({ employee, onClose }) {
             : data.days.map((d) => {
                 const day = Number(d.date.slice(8, 10));
                 const style = d.status ? DAY_STYLE[d.status] || "bg-slate-50 border-slate-200 text-slate-600" : "bg-white border-slate-100 text-slate-300";
-                const tip = d.status ? `${d.status}${d.check_in ? ` · In ${timeStr(d.check_in)}` : ""}${d.check_in_office ? ` @ ${d.check_in_office}` : ""}${d.check_out ? ` · Out ${timeStr(d.check_out)}` : ""}${d.hours ? ` · ${d.hours}h` : ""}` : "No record";
+                const tip = d.status ? `${d.status}${d.check_in ? ` · In ${timeStr(d.check_in)}` : ""}${d.check_in_office ? ` @ ${d.check_in_office}` : ""}${d.check_out ? ` · Out ${timeStr(d.check_out)}` : ""}${d.hours ? ` · ${d.hours}h` : ""}${d.is_manual ? ` · Manually changed: ${d.manual_from || "—"} → ${d.status} by ${d.changed_by_name || "Admin"}${d.changed_by_role ? " (" + d.changed_by_role + ")" : ""}` : ""}` : "No record";
                 return (
                   <div key={d.date} title={tip} className={`min-h-[92px] py-1.5 px-1 gap-0.5 rounded-lg border flex flex-col items-center justify-center ${style}`}>
                     <span className="text-sm font-semibold">{day}</span>
