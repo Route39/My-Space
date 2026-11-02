@@ -1901,7 +1901,7 @@ async def generate_payroll(month: str, user: dict = Depends(require_roles("admin
             extras["extra_duty"] = round((salary / 30) * sun_days, 2)  # Sunday duty = salary / 30
         if prev.get("att_manual"):
             wd_m = prev.get("working_days") or wd
-            lop_days = max(0, wd_m - max(0, prev.get("present_days", 0) - sun_days))
+            lop_days = max(0, wd_m - prev.get("present_days", 0))
             lop = round((salary / 30) * lop_days, 2)
             extras.update(extra_day=0, extra_day_count=0, att_manual=True, working_days=wd_m, present_days=prev.get("present_days", 0), weekly_off=prev.get("weekly_off", 0))
         net = calc_net(salary, lop, overtime, incentive, deduction, extras)

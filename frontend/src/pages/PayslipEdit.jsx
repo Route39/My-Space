@@ -69,8 +69,8 @@ export default function PayslipEdit({ readOnly = false, pid, autoPdf = false, on
   const manual = !!p.att_manual;
   const extraDays = n(p.auto_extra_duty_days ?? p.extra_duty_days);            // Sundays worked
   const wd = manual ? n(p.working_days) : dim - sundays;
-  const present = manual ? n(p.present_days) : n(p.auto_present_days ?? p.present_days) + n(p.paid_leave_days) + extraDays;
-  const woff = manual ? n(p.weekly_off) : Math.max(0, sundays - extraDays);
+  const present = manual ? n(p.present_days) : n(p.auto_present_days ?? p.present_days) + n(p.paid_leave_days);
+  const woff = manual ? n(p.weekly_off) : sundays;
   const extraDim = (() => { const m = String(p.month || ""); if (!/^\d{4}-\d{2}/.test(m)) return 0; return Math.max(0, new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate() - 30); })();
   const d31 = manual ? 0 : n(p.extra_day_count);
   const wd31 = !manual && extraDim > 0 && new Date(Date.UTC(+yy, +mm - 1, 31)).getUTCDay() !== 0 ? 1 : 0;
