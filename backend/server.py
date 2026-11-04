@@ -2526,6 +2526,17 @@ async def get_chat_groups(user: dict = Depends(get_current_user)):
         "org_id": user["org_id"],
         "members": user["id"]
     }, {"_id": 0}).sort("created_at", -1).to_list(100)
+    gids = [g["id"] for g in groups]
+    last = {}
+    async for r in db.chats.aggregate([
+        {"$match": {"org_id": user["org_id"], "recipient_id": {"$in": gids}, "deleted_for": {"$ne": user["id"]}}},
+        {"$group": {"_id": "$recipient_id", "last": {"$max": "$created_at"}, "unread": {"$sum": {"$cond": [{"$and": [{"$ne": ["$sender_id", user["id"]]}, {"$not": [{"$in": [user["id"], {"$ifNull": ["$read_by", []]}]}]}]}, 1, 0]}}}},
+    ]):
+        last[r["_id"]] = r
+    for g in groups:
+        g["last_message_at"] = (last.get(g["id"]) or {}).get("last")
+        g["unread_count"] = (last.get(g["id"]) or {}).get("unread", 0)
+    groups.sort(key=lambda g: g.get("last_message_at") or g.get("created_at") or "", reverse=True)
     return groups
 
 @api.get("/chat/messages")
@@ -2682,7 +2693,21 @@ async def chat_contacts(user: dict = Depends(get_current_user)):
                 "role": "admin"
             })
             
-    return [c for c in contacts if c.get("user_id") != user["id"]]
+    last = {}
+    async for r in db.chats.aggregate([
+        {"$match": {"org_id": org_id, "deleted_for": {"$ne": user["id"]},
+                    "$or": [{"sender_id": user["id"]}, {"recipient_id": user["id"]}]}},
+        {"$project": {"created_at": 1, "sender_id": 1, "read_by": 1, "other": {"$cond": [{"$eq": ["$sender_id", user["id"]]}, "$recipient_id", "$sender_id"]}}},
+        {"$group": {"_id": "$other", "last": {"$max": "$created_at"}, "unread": {"$sum": {"$cond": [{"$and": [{"$ne": ["$sender_id", user["id"]]}, {"$not": [{"$in": [user["id"], {"$ifNull": ["$read_by", []]}]}]}]}, 1, 0]}}}},
+    ]):
+        last[r["_id"]] = r
+    result = [c for c in contacts if c.get("user_id") != user["id"]]
+    for c in result:
+        info = last.get(c.get("user_id") or c["id"]) or {}
+        c["last_message_at"] = info.get("last")
+        c["unread_count"] = info.get("unread", 0)
+    result.sort(key=lambda c: c.get("last_message_at") or "", reverse=True)
+    return result
 
 @api.delete("/chat/clear")
 async def clear_chat(recipient_id: Optional[str] = "group", user: dict = Depends(get_current_user)):

@@ -79,6 +79,20 @@ export default function ChatPage() {
     fetchGroups();
   }, []);
 
+  // Refresh lists so the latest chat moves to the top
+  const refreshLists = async () => {
+    try {
+      const [c, g] = await Promise.all([api.get("/chat/contacts"), api.get("/chat/groups")]);
+      setStaffList(c.data);
+      setGroups(g.data);
+    } catch (err) { }
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => !document.hidden && refreshLists(), 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Poll for messages in the active chat
   useEffect(() => {
     fetchMessages();
@@ -158,6 +172,7 @@ export default function ChatPage() {
         recipient_id: activeChat
       });
       fetchMessages();
+      refreshLists();
     } catch (err) {
       console.error(err);
     }
@@ -268,7 +283,7 @@ export default function ChatPage() {
                 <Users size={20} />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-slate-800 truncate">{g.name}</h3>
+                <div className="flex items-center gap-2"><h3 className={`truncate text-slate-800 ${g.unread_count > 0 && activeChat !== g.id ? "font-bold" : "font-semibold"}`}>{g.name}</h3>{(g.unread_count > 0 && activeChat !== g.id) && (<span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center shrink-0">{g.unread_count > 99 ? "99+" : g.unread_count}</span>)}</div>
                 <p className="text-xs text-slate-500 truncate">{g.members.length} members</p>
               </div>
             </div>
@@ -295,7 +310,7 @@ export default function ChatPage() {
                   <span className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full ${uid.charCodeAt(uid.length - 1) % 2 === 0 ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-slate-800 truncate">{staff.name}</h3>
+                  <div className="flex items-center gap-2"><h3 className={`truncate text-slate-800 ${staff.unread_count > 0 && activeChat !== uid ? "font-bold" : "font-medium"}`}>{staff.name}</h3>{(staff.unread_count > 0 && activeChat !== uid) && (<span className="min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center shrink-0">{staff.unread_count > 99 ? "99+" : staff.unread_count}</span>)}</div>
                   <p className="text-xs text-slate-400 truncate">
                     {(staff.role === "admin" || staff.role === "admin_staff") ? "Admin" : (staff.designation || "Staff")}
                   </p>
