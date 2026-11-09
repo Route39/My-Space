@@ -1169,7 +1169,7 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
         geo = {"check_in_lat": body.lat, "check_in_lng": body.lng, "check_in_distance_m": round(dist),
                "check_in_office": hit["name"], "check_in_place": hit["kind"]}
         
-    if body.lat is not None and body.lng is not None:
+    if body is not None and body.lat is not None and body.lng is not None:
         geo.setdefault("check_in_lat", body.lat); geo.setdefault("check_in_lng", body.lng)
         geo["check_in_address"] = await addr_from_latlng(body.lat, body.lng)
     shift = await db.shifts.find_one({"id": emp.get("shift_id")}, {"_id": 0}) if emp.get("shift_id") else None

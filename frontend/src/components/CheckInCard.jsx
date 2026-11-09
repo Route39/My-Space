@@ -77,6 +77,15 @@ function getPosition() {
   });
 }
 
+async function isGeofenceOn() {
+  try {
+    const { data } = await api.get("/company");
+    return !!data?.geofence_enabled;
+  } catch (_) {
+    return true;
+  }
+}
+
 export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) {
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -104,20 +113,23 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
   const doCheckIn = async () => {
     setBusy(true);
     setGeoAlert(null);
-    setStatusText("Getting GPS…");
     let locError = null;
     try {
       let loc = {};
-      try {
-        const pos = await getPosition();
-        loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
-      } catch (err) {
-        locError = err.message;
-        setGeoAlert({ type: "gps_error", message: locError });
-        toast.error(locError);
-        return;
+      const geoOn = await isGeofenceOn();
+      if (geoOn) {
+        setStatusText("Getting GPS…");
+        try {
+          const pos = await getPosition();
+          loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        } catch (err) {
+          locError = err.message;
+          setGeoAlert({ type: "gps_error", message: locError });
+          toast.error(locError);
+          return;
+        }
       }
-      setStatusText("Verifying Geofence…");
+      setStatusText(geoOn ? "Verifying Geofence…" : "Checking in…");
       const { data } = await api.post("/attendance/checkin", loc);
       setGeoAlert(null);
       toast.success(data?.check_in_office ? `Checked in at ${data.check_in_office}` : "Checked in successfully");
@@ -143,7 +155,7 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
     setBusy(true);
     try {
       let loc = {};
-      try { const pos = await getPosition(); loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }; } catch (_) { /* checkout without GPS */ }
+      if (await isGeofenceOn()) { try { const pos = await getPosition(); loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }; } catch (_) { /* checkout without GPS */ } }
       await api.post("/attendance/checkout", loc);
       setCelebrate(true); setTimeout(() => setCelebrate(false), 1200);
       toast.success("Checked out. Have a good day!");
