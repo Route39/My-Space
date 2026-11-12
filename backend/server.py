@@ -232,7 +232,10 @@ class LeaveIn(BaseModel):
     permission_hours: Optional[str] = None
     permission_minutes: Optional[str] = None
 class ChatMsgIn(BaseModel):
-    message: str
+    message: str = ""
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    attachment_type: Optional[str] = None
     mentions: List[str] = []
     recipient_id: str = "group"
 
@@ -1580,6 +1583,25 @@ def days_between(a: str, b: str) -> int:
     return (d2 - d1).days + 1
 
 
+async def post_leave_update(org_id: str, text: str, actor_id: str):
+    """Post a leave update into the admin-only "Leave Updates" chat group."""
+    try:
+        admins = await db.users.find({"org_id": org_id, "role": {"$in": ["admin", "admin_staff", "super_admin"]}}, {"id": 1}).to_list(500)
+        members = [a["id"] for a in admins if a.get("id")]
+        grp = await db.chat_groups.find_one({"org_id": org_id, "system_key": "leave_updates"})
+        if grp:
+            await db.chat_groups.update_one({"id": grp["id"]}, {"$set": {"members": members}})
+            gid = grp["id"]
+        else:
+            gid = "grp_" + uid()
+            await db.chat_groups.insert_one({"id": gid, "org_id": org_id, "name": "📋 Leave Updates", "system_key": "leave_updates",
+                                             "created_by": actor_id, "members": members, "created_at": now_ist().isoformat()})
+        await db.chats.insert_one({"id": uid(), "org_id": org_id, "sender_id": actor_id, "message": text, "mentions": [],
+                                   "recipient_id": gid, "deleted_for": [], "read_by": [actor_id], "created_at": now_ist().isoformat()})
+    except Exception as e:
+        print("leave chat update failed:", e)
+
+
 @api.post("/leaves")
 async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
@@ -1598,6 +1620,7 @@ async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
            "permission_minutes": body.permission_minutes,
            "applied_at": now_utc().isoformat()}
     await db.leaves.insert_one(doc)
+    await post_leave_update(user["org_id"], f"📝 {emp['name']} applied for {body.leave_type} · {body.from_date} → {body.to_date}", user["id"])
     # notify team leader / admins
     if emp.get("team_leader_id"):
         tl_user = await db.users.find_one({"employee_id_ref": emp["team_leader_id"]})
@@ -1612,7 +1635,9 @@ async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
 
 
 @api.get("/leaves/log")
-async def leaves_log(user: dict = Depends(require_leave_admin())):
+async def leaves_log(user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("admin", "admin_staff", "super_admin", "team_leader"):
+        raise HTTPException(status_code=403, detail="Not allowed")
     return await db.leaves.find({"org_id": user["org_id"]}, {"_id": 0}).sort([("created_at", -1), ("from_date", -1)]).to_list(2000)
 
 
@@ -1698,6 +1723,7 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
     if emp_user:
         await create_notification(emp_user["id"], "leave", f"Your {leave['leave_type']} was approved")
     await log_activity(user["org_id"], f"Leave approved for {leave['employee_name']} by {user.get('name')}")
+    await post_leave_update(user["org_id"], f"✅ {leave['employee_name']}'s {leave['leave_type']} ({leave['from_date']} → {leave['to_date']}) was approved by {user.get('name')}", user["id"])
     return await db.leaves.find_one({"id": leave_id}, {"_id": 0})
 
 
@@ -1707,6 +1733,7 @@ async def reject_leave(leave_id: str, user: dict = Depends(require_leave_admin()
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
     await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"status": "Rejected", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
+    await post_leave_update(user["org_id"], f"❌ {leave['employee_name']}'s {leave['leave_type']} ({leave['from_date']} → {leave['to_date']}) was rejected by {user.get('name')}", user["id"])
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
         await create_notification(emp_user["id"], "leave", f"Your {leave['leave_type']} was rejected")
@@ -2480,6 +2507,25 @@ class ChatGroupIn(BaseModel):
     name: str
     members: list[str]
 
+import os as _os
+from fastapi.responses import FileResponse as _FR
+CHAT_DIR=_os.path.join(_os.path.dirname(__file__),"uploads","chat"); _os.makedirs(CHAT_DIR,exist_ok=True)
+@api.post("/chat/upload")
+async def chat_upload(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    ext=_os.path.splitext(file.filename or "")[1].lower()
+    if ext not in {".jpg",".jpeg",".png",".webp",".gif",".pdf",".doc",".docx",".xls",".xlsx",".csv",".txt",".zip",".rar",".ppt",".pptx",".rtf",".odt",".json"}:
+        raise HTTPException(400,"File type not allowed")
+    data=await file.read()
+    if len(data)>10*1024*1024: raise HTTPException(400,"Max 10 MB")
+    name=uid()+ext; open(_os.path.join(CHAT_DIR,name),"wb").write(data)
+    kind="image" if ext in {".jpg",".jpeg",".png",".webp",".gif"} else "file"
+    return {"url":f"/api/chat/file/{name}","name":file.filename,"type":kind}
+@api.get("/chat/file/{name}")
+async def chat_file(name: str):
+    f=_os.path.join(CHAT_DIR,_os.path.basename(name))
+    if not _os.path.exists(f): raise HTTPException(404,"Not found")
+    return _FR(f)
+
 @api.post("/chat/groups")
 async def create_chat_group(body: ChatGroupIn, user: dict = Depends(require_roles("admin", "admin_staff"))):
     group_id = "grp_" + uid()
@@ -2608,6 +2654,9 @@ async def send_chat_message(body: ChatMsgIn, user: dict = Depends(get_current_us
         "org_id": user["org_id"],
         "sender_id": user["id"],
         "message": body.message,
+        "attachment_url": body.attachment_url,
+        "attachment_name": body.attachment_name,
+        "attachment_type": body.attachment_type,
         "mentions": body.mentions,
         "recipient_id": body.recipient_id,
         "deleted_for": [],

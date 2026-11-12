@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageCircle, Send, MoreVertical, Trash2, Users, Settings } from "lucide-react";
+import { MessageCircle, Send, Paperclip, FileText, MoreVertical, Trash2, Users, Settings } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/components/common";
@@ -143,6 +143,20 @@ export default function ChatPage() {
     window.sendAudioInstance.pause();
     window.sendAudioInstance.currentTime = 0;
     window.sendAudioInstance.play().catch(e => console.log("Audio play blocked"));
+  };
+
+  const fileBase = (api.defaults.baseURL || "").replace(/\/api\/?$/, "");
+  const sendFile = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f || !activeChat) return;
+    if (f.size > 10 * 1024 * 1024) { alert("Max 10 MB"); return; }
+    try {
+      const fd = new FormData(); fd.append("file", f);
+      const { data: up } = await api.post("/chat/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      await api.post("/chat/messages", { message: "", recipient_id: activeChat, mentions: [], attachment_url: up.url, attachment_name: up.name, attachment_type: up.type });
+      const { data } = await api.get(`/chat/messages?recipient_id=${activeChat}`);
+      setMessages(data);
+    } catch (err) { alert(err?.response?.data?.detail || "Upload failed"); }
   };
 
   const send = async (e) => {
@@ -373,7 +387,10 @@ export default function ChatPage() {
                   {showName && (
                     <p className="text-[11px] font-semibold text-emerald-600 mb-1">{msg.sender_name}</p>
                   )}
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message}</p>
+                  <>{msg.attachment_url && (msg.attachment_type === "image"
+  ? <a href={fileBase + msg.attachment_url} target="_blank" rel="noreferrer"><img src={fileBase + msg.attachment_url} alt={msg.attachment_name} className="max-w-[240px] max-h-[240px] rounded-lg mb-1 object-cover" /></a>
+  : <a href={fileBase + msg.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-white/60 rounded-lg px-3 py-2 mb-1 text-sm underline"><FileText size={18} />{msg.attachment_name}</a>)}
+{msg.message && <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message}</p>}</>
                   <p className="text-[10px] text-slate-400 text-right mt-1.5">{format(time, "HH:mm")}</p>
 
                   {/* Menu */}
@@ -423,6 +440,10 @@ export default function ChatPage() {
           )}
 
           <form onSubmit={send} className="flex-1 flex gap-3">
+            <label className="cursor-pointer p-2 text-gray-500 hover:text-green-600" title="Attach photo / file">
+              <Paperclip size={20} />
+              <input type="file" hidden accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.ppt,.pptx,.rtf,.odt,.json" onChange={sendFile} />
+            </label>
             <input
               id="chat-input"
               type="text"
