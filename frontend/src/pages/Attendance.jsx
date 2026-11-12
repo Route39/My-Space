@@ -227,9 +227,9 @@ function AdminAttendance({ user }) {
   rows.forEach((r) => { if (counts[r.status] !== undefined) counts[r.status]++; });
 
   const filteredRows = rows.filter(r => 
-    r.name.toLowerCase().includes(search.toLowerCase()) || 
-    (r.location || "").toLowerCase().includes(search.toLowerCase()) ||
-    (r.check_in_office || "").toLowerCase().includes(search.toLowerCase())
+    r.name.toLowerCase().includes(search.trim().toLowerCase()) || 
+    (r.location || "").toLowerCase().includes(search.trim().toLowerCase()) ||
+    (r.check_in_office || "").toLowerCase().includes(search.trim().toLowerCase())
   );
 
   return (

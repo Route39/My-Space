@@ -296,7 +296,7 @@ function ManagerLeave() {
                 </tr></thead>
                 <tbody>
                   {others
-                    .filter(l => !search || l.employee_name.toLowerCase().includes(search.toLowerCase()))
+                    .filter(l => !search || l.employee_name.toLowerCase().includes(search.trim().toLowerCase()))
                     .map((l) => (
                     <tr key={l.id} className="border-t border-slate-50">
                       <td className="px-5 py-3 font-medium text-slate-700">

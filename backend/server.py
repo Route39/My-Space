@@ -1082,7 +1082,8 @@ async def set_salary(emp_id: str, body: SalaryIn, user: dict = Depends(require_r
 
 
 # ---------------- attendance ----------------
-MAX_GPS_ACCURACY_M = 150      # reject very weak location fixes
+MAX_GPS_ACCURACY_M = 1000     # reject only very weak fixes (e.g. iPhone Precise Location off)
+GPS_SLACK_M = 100             # allow GPS error margin up to 100m on top of the radius
 DEFAULT_OFFICE_RADIUS_M = 50       # Gold-standard: entrance door & inside office physical boundary
 GEOFENCED_WORK_MODES = ("Office",)   # Work from Home / Hybrid staff can check in anywhere
 
@@ -1152,9 +1153,9 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
         if body is None or body.lat is None or body.lng is None:
             raise HTTPException(status_code=400, detail="Location not received. Allow location access on your device and try again.")
         if body.accuracy is not None and body.accuracy > MAX_GPS_ACCURACY_M:
-            raise HTTPException(status_code=400, detail="Your location is not accurate enough. Turn on GPS / Wi-Fi and try again.")
+            raise HTTPException(status_code=400, detail="Your location is not accurate enough. Turn on GPS and Precise Location (iPhone: Settings > Privacy > Location Services > browser > Precise Location ON) and try again.")
         measured = [(haversine_m(body.lat, body.lng, t["lat"], t["lng"]), t) for t in targets]
-        inside = [m for m in measured if m[0] <= m[1]["radius"]]
+        inside = [m for m in measured if m[0] <= m[1]["radius"] + min(body.accuracy or 0, GPS_SLACK_M)]
         if not inside:
             closest_dist, closest_target = min(measured, key=lambda m: m[0])
             target_name = closest_target["name"]
@@ -2809,3 +2810,7 @@ async def lifespan(app):
     client.close()
 
 app.router.lifespan_context = lifespan
+
+# Trim spaces from all JSON inputs and search queries
+from trim_middleware import TrimMiddleware
+app.add_middleware(TrimMiddleware)

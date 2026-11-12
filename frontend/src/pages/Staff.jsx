@@ -57,7 +57,7 @@ export default function Staff() {
   };
 
   const locNames = locationOptions(locs, emps.map((e) => e.location));
-  const filtered = emps.filter((e) => [e.name, e.employee_code, e.department, e.designation, e.location].join(" ").toLowerCase().includes(q.toLowerCase()) && (locFilter === "all" || (e.location || "").toLowerCase() === locFilter.toLowerCase()));
+  const filtered = emps.filter((e) => [e.name, e.employee_code, e.department, e.designation, e.location].join(" ").toLowerCase().includes(q.trim().toLowerCase()) && (locFilter === "all" || (e.location || "").toLowerCase() === locFilter.toLowerCase()));
 
   return (
     <div className="space-y-6">
