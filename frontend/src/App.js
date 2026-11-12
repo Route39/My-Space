@@ -13,6 +13,7 @@ import Attendance from "@/pages/Attendance";
 import Tasks from "@/pages/Tasks";
 import MySpace from "@/pages/MySpace";
 import Leave from "@/pages/Leave";
+import LeaveLog from "@/pages/LeaveLog";
 import Payroll from "@/pages/Payroll";
 import Payslip from "@/pages/Payslip";
 import Settings from "@/pages/Settings";
@@ -53,6 +54,7 @@ function AppRoutes() {
         <Route path="/tasks" element={<Protected><Tasks /></Protected>} />
         <Route path="/myspace" element={<Protected><MySpace /></Protected>} />
         <Route path="/leave" element={<Protected><Leave /></Protected>} />
+        <Route path="/leave-log" element={<Protected roles={["admin", "admin_staff", "super_admin"]}><LeaveLog /></Protected>} />
         <Route path="/payroll" element={<Protected roles={["admin", "team_leader", "admin_staff"]}><Payroll /></Protected>} />
         <Route path="/payroll/:id" element={<Protected roles={["admin", "admin_staff"]}><PayslipEdit /></Protected>} />
         <Route path="/payslip" element={<Protected><Payslip /></Protected>} />

@@ -1611,6 +1611,11 @@ async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
     return doc
 
 
+@api.get("/leaves/log")
+async def leaves_log(user: dict = Depends(require_leave_admin())):
+    return await db.leaves.find({"org_id": user["org_id"]}, {"_id": 0}).sort([("created_at", -1), ("from_date", -1)]).to_list(2000)
+
+
 @api.get("/leaves/me")
 async def my_leaves(user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
@@ -1661,7 +1666,7 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
     leave = await db.leaves.find_one({"id": leave_id, "org_id": user["org_id"]}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
-    await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"status": "Approved"}})
+    await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"status": "Approved", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
     # deduct balance & mark attendance leave
     if leave["leave_type"] == "Casual Leave":
         await db.leave_balances.update_one({"employee_id": leave["employee_id"]}, {"$inc": {"used_casual": leave["days"]}})
@@ -1692,7 +1697,7 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
         await create_notification(emp_user["id"], "leave", f"Your {leave['leave_type']} was approved")
-    await log_activity(user["org_id"], f"Leave approved for {leave['employee_name']}")
+    await log_activity(user["org_id"], f"Leave approved for {leave['employee_name']} by {user.get('name')}")
     return await db.leaves.find_one({"id": leave_id}, {"_id": 0})
 
 
@@ -1701,7 +1706,7 @@ async def reject_leave(leave_id: str, user: dict = Depends(require_leave_admin()
     leave = await db.leaves.find_one({"id": leave_id, "org_id": user["org_id"]}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
-    await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"status": "Rejected"}})
+    await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"status": "Rejected", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
         await create_notification(emp_user["id"], "leave", f"Your {leave['leave_type']} was rejected")

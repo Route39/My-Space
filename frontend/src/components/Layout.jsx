@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
-  Users, Clock, KanbanSquare, Palmtree, Wallet, Settings, Bell, LogOut,
+  Users, Clock, KanbanSquare, Palmtree, ClipboardList, Wallet, Settings, Bell, LogOut,
   Home, User, PanelLeftClose, PanelLeft, NotebookPen, MessageCircle, X, LayoutGrid
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
+import { toast } from "sonner";
 import { Avatar } from "@/components/common";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuTrigger,
@@ -19,6 +20,7 @@ const ALL_NAV = [
   { to: "/tasks", label: "Tasks", icon: KanbanSquare, roles: ["admin", "team_leader", "staff"] },
   { to: "/myspace", label: "My Space", icon: NotebookPen, roles: ["admin", "team_leader", "staff"] },
   { to: "/leave", label: "Leave", icon: Palmtree, roles: ["admin", "team_leader", "staff"] },
+  { to: "/leave-log", label: "Leave Log", icon: ClipboardList, roles: ["admin"] },
   { to: "/chat", label: "Chat", icon: MessageCircle, roles: ["admin", "team_leader", "staff"] },
   { to: "/payroll", label: "Payslip", icon: Wallet, roles: ["admin", "team_leader"] },
   { to: "/payslip", label: "Payslip", icon: Wallet, roles: ["staff"] },
@@ -313,11 +315,12 @@ export default function Layout({ children }) {
         const newMsgTime = data.latest_time ? new Date(data.latest_time).getTime() : 0;
         
         // If there's a genuinely newer message, play the global sound
-        if (!isFirstLoadRef.current && newMsgTime > prevUnreadTimeRef.current) {
+        if (!isFirstLoadRef.current && newMsgTime > prevUnreadTimeRef.current && !location.pathname.startsWith("/chat")) {
           window.playChatSound?.();
+          toast("💬 New message", { description: "You have a new chat message." });
           
           // Show a Desktop notification if they are in another tab!
-          if ("Notification" in window && Notification.permission === "granted") {
+          if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
             new Notification("New Message in MySpace", {
               body: "You have received a new chat message.",
               icon: "/favicon.ico"
@@ -331,7 +334,7 @@ export default function Layout({ children }) {
       } catch (e) {}
     };
     fetchUnreadChat();
-    const t = setInterval(() => !document.hidden && fetchUnreadChat(), 15000); // Poll every 15s (paused when tab hidden)
+    const t = setInterval(() => fetchUnreadChat(), 15000); // Poll every 15s (paused when tab hidden)
     return () => clearInterval(t);
   }, [location.pathname]);
 
