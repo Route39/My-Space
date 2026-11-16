@@ -75,6 +75,7 @@ export default function LeaveApprovalPopup() {
   const location = useLocation();
   const isDashboard = location.pathname === "/";
   const [pending, setPending] = useState([]);
+  const [worked, setWorked] = useState([]);
   const [open, setOpen] = useState(isDashboard);
   const panelRef = useRef(null);
   const bubbleRef = useRef(null);
@@ -88,6 +89,10 @@ export default function LeaveApprovalPopup() {
       const { data } = await api.get("/leaves/pending");
       setPending(data);
     } catch (e) {}
+    try {
+      const { data } = await api.get("/leaves/came-to-work");
+      setWorked(data);
+    } catch (e) {}
   };
 
   useEffect(() => {
@@ -100,10 +105,10 @@ export default function LeaveApprovalPopup() {
   useEffect(() => { setOpen(isDashboard); }, [isDashboard]);
 
   useEffect(() => {
-    if (!pending.length) return;
+    if (!pending.length && !worked.length) return;
     panel.setPos((p) => panel.clamp(p));
     bubble.setPos((p) => bubble.clamp(p));
-  }, [pending.length, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pending.length, worked.length, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (id, action) => {
     try {
@@ -115,14 +120,19 @@ export default function LeaveApprovalPopup() {
     }
   };
 
-  if (!canApprove || pending.length === 0) return null;
+  const ackWorked = async (id) => {
+    try { await api.put(`/leaves/${id}/ack-worked`); load(); } catch (e) { toast.error("Action failed"); }
+  };
+  const total = pending.length + worked.length;
+
+  if (!canApprove || total === 0) return null;
 
   if (!open) {
     return createPortal(
       <div
         ref={bubbleRef}
         role="button"
-        aria-label={`Leave requests (${pending.length})`}
+        aria-label={`Leave requests (${total})`}
         data-testid="leave-bubble"
         {...bubble.handlers}
         onPointerUp={(e) => { if (!bubble.handlers.onPointerUp(e)) setOpen(true); }}
@@ -131,7 +141,7 @@ export default function LeaveApprovalPopup() {
       >
         <CalendarClock className="w-6 h-6 pointer-events-none" />
         <span className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center border-2 border-white pointer-events-none">
-          {pending.length}
+          {total}
         </span>
       </div>,
       document.body
@@ -148,7 +158,7 @@ export default function LeaveApprovalPopup() {
       <div className="bg-slate-50 border-b border-slate-100 p-2 flex items-center justify-between">
         <div className="flex items-center text-slate-500 gap-1.5 px-1">
           <GripHorizontal className="w-4 h-4" />
-          <span className="text-xs font-semibold uppercase tracking-wider">Leave Requests ({pending.length})</span>
+          <span className="text-xs font-semibold uppercase tracking-wider">Leave Requests ({total})</span>
         </div>
         <button type="button" data-nodrag aria-label="Minimise" onClick={() => setOpen(false)}
           className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-200 hover:text-slate-800">
@@ -179,6 +189,29 @@ export default function LeaveApprovalPopup() {
               </Button>
               <Button size="sm" variant="outline" onClick={() => act(l.id, "reject")} className="flex-1 h-8 rounded-lg border-red-200 text-red-600 hover:bg-red-50 text-xs">
                 <X className="w-3.5 h-3.5 mr-1" /> Reject
+              </Button>
+            </div>
+          </div>
+        ))}
+        {worked.map((l) => (
+          <div key={`w-${l.id}`} className="snap-start bg-amber-50 rounded-xl p-3 border border-amber-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Avatar name={l.employee_name} size={28} />
+              <div>
+                <p className="text-sm font-semibold text-slate-800 leading-none">{l.employee_name}</p>
+                <p className="text-[10px] text-amber-700 mt-1">Came to work on leave day</p>
+              </div>
+            </div>
+            <p className="text-xs font-medium text-slate-700 bg-white p-2 rounded-lg border border-amber-200 mb-2 shadow-sm">
+              {l.leave_type} · {l.status === "Cancelled" ? "Leave cancelled" : `Reduced to ${l.days} day(s)`}
+              <br />
+              <span className="text-slate-500 font-normal mt-0.5 inline-block">
+                Worked on: {(l.worked_dates || []).map(dateStr).join(", ")}
+              </span>
+            </p>
+            <div className="flex gap-2" data-nodrag>
+              <Button size="sm" onClick={() => ackWorked(l.id)} className="flex-1 h-8 rounded-lg bg-amber-500 hover:bg-amber-600 text-xs">
+                <Check className="w-3.5 h-3.5 mr-1" /> OK
               </Button>
             </div>
           </div>

@@ -116,7 +116,7 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
     let locError = null;
     try {
       let loc = {};
-      const geoOn = await isGeofenceOn();
+      const geoOn = new Date().getDay() !== 0 && await isGeofenceOn();  // Sunday: no location needed
       if (geoOn) {
         setStatusText("Getting GPS…");
         try {
@@ -244,9 +244,15 @@ export default function CheckInCard({ today, shift, onChange, isOnLeaveToday }) 
       )}
 
       <div className="mt-5 relative">
-        {isOnLeaveToday ? (
-          <div className="w-full h-13 py-3.5 rounded-2xl bg-amber-500/15 text-amber-500 font-heading font-semibold flex items-center justify-center gap-2">
-             You are on leave today
+        {isOnLeaveToday && !checkedIn && !done ? (
+          <div className="space-y-2">
+            <div className="w-full py-3 rounded-2xl bg-amber-500/15 text-amber-500 font-heading font-semibold flex items-center justify-center gap-2">
+              You are on leave today
+            </div>
+            <button onClick={doCheckIn} disabled={busy} data-testid="leave-day-check-in-btn"
+              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-heading font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-60">
+              <LogIn className="w-5 h-5" /> {statusText || "Came to work? Check In"}
+            </button>
           </div>
         ) : done ? (
           <div className="w-full h-13 py-3.5 rounded-2xl bg-emerald-500/15 text-emerald-300 font-heading font-semibold flex items-center justify-center gap-2">

@@ -335,7 +335,7 @@ def compute_status(check_in_iso: str, shift: Optional[dict]) -> str:
     return "Present"
 
 
-LATE_EXCUSES_PER_MONTH = 3
+LATE_EXCUSES_PER_MONTH = 2
 PERMISSIONS_PER_MONTH = 3
 
 
@@ -1106,6 +1106,35 @@ def haversine_m(lat1, lng1, lat2, lng2) -> float:
     return 2 * R * math.asin(math.sqrt(a))
 
 
+async def release_leave_day(emp: dict, day: str, org_id: str):
+    """Employee checked in on an approved full-day leave: drop that day from the leave and give the balance back."""
+    lv = await db.leaves.find_one({"employee_id": emp["id"], "status": "Approved",
+                                   "from_date": {"$lte": day}, "to_date": {"$gte": day},
+                                   "category": {"$nin": ["Half Day", "Permission"]},
+                                   "leave_type": {"$ne": "Work from Home"},
+                                   "worked_dates": {"$ne": day}}, {"_id": 0})
+    if not lv:
+        return
+    days_left = max(0, (lv.get("days") or 1) - 1)
+    upd = {"days": days_left, "worked_dates": (lv.get("worked_dates") or []) + [day]}
+    if days_left == 0:
+        upd.update(status="Cancelled", cancel_reason="Came to work",
+                   decided_by=f"{emp['name']} (came to work)", decided_at=datetime.now(timezone.utc).isoformat())
+    await db.leaves.update_one({"id": lv["id"]}, {"$set": upd})
+    bal_field = {"Casual Leave": "used_casual", "Sick Leave": "used_sick"}.get(lv.get("leave_type"))
+    if bal_field:
+        await db.leave_balances.update_one({"employee_id": emp["id"]}, {"$inc": {bal_field: -1}})
+    msg = f"{emp['name']} came to work on leave day ({day}), leave adjusted"
+    if emp.get("team_leader_id"):
+        tl_user = await db.users.find_one({"employee_id_ref": emp["team_leader_id"]})
+        if tl_user:
+            await create_notification(tl_user["id"], "leave", msg)
+    admins = await db.users.find({"org_id": org_id, "role": {"$in": ["admin", "admin_staff"]}}).to_list(20)
+    for a in admins:
+        await create_notification(a["id"], "leave", msg)
+    await log_activity(org_id, msg)
+
+
 @api.post("/attendance/checkin")
 async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_current_user)):
     emp = await get_employee_for_user(user)
@@ -1120,7 +1149,7 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
     geo = {}
     company = await db.companies.find_one({"id": user["org_id"]}, {"_id": 0}) or {}
     targets = []
-    if (company.get("geofence_enabled") and (emp.get("work_mode") or "Office") in GEOFENCED_WORK_MODES
+    if (not is_week_off(today) and company.get("geofence_enabled") and (emp.get("work_mode") or "Office") in GEOFENCED_WORK_MODES
             and (emp.get("location") or "").strip().lower() != "remote"):
         # Fetch all registered office locations for the company so staff can punch at any office/hub they visit
         all_locs = await db.locations.find({"org_id": user["org_id"]}, {"_id": 0}).to_list(100)
@@ -1196,6 +1225,8 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
             status = "Half Day"
 
     if existing:
+        if existing.get("status") == "Leave":
+            await release_leave_day(emp, today, user["org_id"])
         new_status = status if existing.get("status") in ("Leave", "Week Off") else existing.get("status", status)
         upd = {"check_in": ci, "status": new_status, "late_checkin": late_checkin, **geo}
         if new_status == "Half Day" and not existing.get("status_reason"):
@@ -1666,6 +1697,16 @@ async def pending_leaves(user: dict = Depends(require_leave_admin())):
     leaves = await db.leaves.find({"org_id": user["org_id"], "status": "Pending"}, {"_id": 0}).sort("applied_at", -1).to_list(100)
     return leaves
 
+@api.get("/leaves/came-to-work")
+async def came_to_work_leaves(user: dict = Depends(require_leave_admin())):
+    return await db.leaves.find({"org_id": user["org_id"], "worked_dates.0": {"$exists": True},
+                                 "worked_ack": {"$ne": True}}, {"_id": 0}).to_list(100)
+
+@api.put("/leaves/{leave_id}/ack-worked")
+async def ack_came_to_work(leave_id: str, user: dict = Depends(require_leave_admin())):
+    await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"worked_ack": True}})
+    return {"ok": True}
+
 @api.get("/leaves")
 async def list_leaves(user: dict = Depends(require_leave_admin())):
     emps = await list_employees(user)
@@ -1691,7 +1732,9 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
     leave = await db.leaves.find_one({"id": leave_id, "org_id": user["org_id"]}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
-    await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"status": "Approved", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
+    res = await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"], "status": "Pending"}, {"$set": {"status": "Approved", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
+    if res.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Leave already processed")
     # deduct balance & mark attendance leave
     if leave["leave_type"] == "Casual Leave":
         await db.leave_balances.update_one({"employee_id": leave["employee_id"]}, {"$inc": {"used_casual": leave["days"]}})
@@ -1732,7 +1775,9 @@ async def reject_leave(leave_id: str, user: dict = Depends(require_leave_admin()
     leave = await db.leaves.find_one({"id": leave_id, "org_id": user["org_id"]}, {"_id": 0})
     if not leave:
         raise HTTPException(status_code=404, detail="Not found")
-    await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"status": "Rejected", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
+    res = await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"], "status": "Pending"}, {"$set": {"status": "Rejected", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
+    if res.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Leave already processed")
     await post_leave_update(user["org_id"], f"❌ {leave['employee_name']}'s {leave['leave_type']} ({leave['from_date']} → {leave['to_date']}) was rejected by {user.get('name')}", user["id"])
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
