@@ -278,6 +278,8 @@ class CommentIn(BaseModel):
 
 
 class CompanyIn(BaseModel):
+    late_excuses_per_month: int | None = None
+    permissions_per_month: int | None = None
     name: Optional[str] = None
     address: Optional[str] = None
     logo: Optional[str] = None
@@ -339,6 +341,13 @@ def compute_status(check_in_iso: str, shift: Optional[dict]) -> str:
 
 LATE_EXCUSES_PER_MONTH = 2
 PERMISSIONS_PER_MONTH = 3
+
+
+async def get_policy(org_id: str) -> tuple:
+    """Admin-set monthly limits per company; falls back to defaults above."""
+    c = await db.companies.find_one({"id": org_id}, {"_id": 0, "late_excuses_per_month": 1, "permissions_per_month": 1}) or {}
+    return (int(c.get("late_excuses_per_month", LATE_EXCUSES_PER_MONTH)),
+            int(c.get("permissions_per_month", PERMISSIONS_PER_MONTH)))
 
 
 def is_week_off(date_str: str) -> bool:
@@ -557,6 +566,9 @@ async def get_company(user: dict = Depends(get_current_user)):
 @api.put("/company")
 async def update_company(body: CompanyIn, user: dict = Depends(require_roles("admin"))):
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    for k in ("late_excuses_per_month", "permissions_per_month"):
+        if k in upd and not 0 <= upd[k] <= 31:
+            raise HTTPException(status_code=400, detail=f"{k} must be between 0 and 31")
     await db.companies.update_one({"id": user["org_id"]}, {"$set": upd})
     return await db.companies.find_one({"id": user["org_id"]}, {"_id": 0})
 
@@ -1211,6 +1223,7 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
     ci = now_ist().isoformat()
     status = compute_status(ci, shift)
     
+    late_limit, _ = await get_policy(user["org_id"])
     late_checkin = False
     late_count = 0
     if is_week_off(today):
@@ -1223,7 +1236,7 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
             "$or": [{"status": "Late"}, {"late_checkin": True}],
         })
         late_count = prior_late + 1
-        if late_count > LATE_EXCUSES_PER_MONTH:
+        if late_count > late_limit:
             status = "Half Day"
 
     if existing:
@@ -1242,7 +1255,7 @@ async def checkin(body: Optional[CheckInIn] = None, user: dict = Depends(get_cur
         await db.attendance.insert_one(doc)
         doc.pop("_id", None)
     doc["late_count_month"] = late_count
-    doc["late_excuses_left"] = max(0, LATE_EXCUSES_PER_MONTH - late_count) if late_checkin else None
+    doc["late_excuses_left"] = max(0, late_limit - late_count) if late_checkin else None
 
     await log_activity(user["org_id"], f"{emp['name']} checked in")
     doc["server_now"] = now_ist().isoformat()
@@ -1761,7 +1774,8 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
         prior_perms = await db.leaves.count_documents({
             "employee_id": leave["employee_id"], "category": "Permission", "status": "Approved",
             "from_date": {"$regex": f"^{leave['from_date'][:7]}"}, "id": {"$ne": leave_id}})
-        if prior_perms >= PERMISSIONS_PER_MONTH:
+        _, perm_limit = await get_policy(user["org_id"])
+        if prior_perms >= perm_limit:
             perm_status = "Half Day"
             await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"]}, {"$set": {"over_limit": True}})
     d = date.fromisoformat(leave["from_date"])

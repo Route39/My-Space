@@ -32,8 +32,12 @@ export default function Settings() {
   useEffect(() => { load(); }, []);
 
   const saveCompany = async () => {
-    await api.put("/company", { name: company.name, address: company.address });
-    toast.success("Company saved");
+    try {
+      await api.put("/company", { name: company.name, address: company.address,
+        late_excuses_per_month: Number(company.late_excuses_per_month ?? 2),
+        permissions_per_month: Number(company.permissions_per_month ?? 3) });
+      toast.success("Company saved");
+    } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
   };
   const addDept = async () => { if (!newDept.trim()) return; await api.post("/departments", { name: newDept }); setNewDept(""); load(); };
   const delDept = async (id) => { await api.delete(`/departments/${id}`); load(); };
@@ -84,6 +88,10 @@ export default function Settings() {
           <div className="rounded-2xl bg-white border border-slate-200 p-6 max-w-lg space-y-4">
             <div><Label>Company name</Label><Input className="rounded-xl mt-1" value={company.name || ""} onChange={(e) => setCompany({ ...company, name: e.target.value })} data-testid="company-name" /></div>
             <div><Label>Address</Label><Input className="rounded-xl mt-1" value={company.address || ""} onChange={(e) => setCompany({ ...company, address: e.target.value })} /></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t">
+              <div><Label>Late excuses per month</Label><Input type="number" min={0} max={31} className="rounded-xl mt-1" value={company.late_excuses_per_month ?? 2} onChange={(e) => setCompany({ ...company, late_excuses_per_month: e.target.value })} data-testid="late-excuses-limit" /><p className="text-xs text-slate-500 mt-1">After this many late check-ins, the next one becomes Half Day.</p></div>
+              <div><Label>Permissions per month</Label><Input type="number" min={0} max={31} className="rounded-xl mt-1" value={company.permissions_per_month ?? 3} onChange={(e) => setCompany({ ...company, permissions_per_month: e.target.value })} data-testid="permissions-limit" /><p className="text-xs text-slate-500 mt-1">After this many permissions, the next one becomes Half Day.</p></div>
+            </div>
             <Button onClick={saveCompany} className="rounded-xl bg-emerald-600 hover:bg-emerald-700" data-testid="save-company"><Save className="w-4 h-4 mr-2" /> Save</Button>
           </div>
         </TabsContent>
