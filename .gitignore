@@ -99,3 +99,11 @@ src_backup_before_mobile_fix/
 *.bak
 *.bak-*
 backend/uploads/
+
+# backup files
+*.bak
+*.bak-*
+*.bak*
+
+# runtime uploads
+backend/uploads/
