@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import LeaveMsgText from "@/components/LeaveMsgText";
 import { MessageCircle, Send, Paperclip, FileText, MoreVertical, Trash2, Users, Settings } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -390,7 +391,7 @@ export default function ChatPage() {
                   <>{msg.attachment_url && (msg.attachment_type === "image"
   ? <a href={fileBase + msg.attachment_url} target="_blank" rel="noreferrer"><img src={fileBase + msg.attachment_url} alt={msg.attachment_name} className="max-w-[240px] max-h-[240px] rounded-lg mb-1 object-cover" /></a>
   : <a href={fileBase + msg.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-white/60 rounded-lg px-3 py-2 mb-1 text-sm underline"><FileText size={18} />{msg.attachment_name}</a>)}
-{msg.message && <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message}</p>}</>
+{msg.message && <p className="text-sm whitespace-pre-wrap leading-relaxed"><LeaveMsgText text={msg.message} /></p>}</>
                   <p className="text-[10px] text-slate-400 text-right mt-1.5">{format(time, "HH:mm")}</p>
 
                   {/* Menu */}

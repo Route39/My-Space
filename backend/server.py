@@ -231,6 +231,8 @@ class LeaveIn(BaseModel):
     half_day_type: Optional[str] = None
     permission_hours: Optional[str] = None
     permission_minutes: Optional[str] = None
+    permission_from: Optional[str] = None
+    permission_to: Optional[str] = None
 class ChatMsgIn(BaseModel):
     message: str = ""
     attachment_url: Optional[str] = None
@@ -1614,6 +1616,18 @@ def days_between(a: str, b: str) -> int:
     return (d2 - d1).days + 1
 
 
+def leave_label(d):
+    cat = d.get("category") or "Full Day"; lt = d.get("leave_type") or "Leave"
+    if cat == "Permission":
+        h = int(d.get("permission_hours") or 0); m = int(d.get("permission_minutes") or 0)
+        dur = ((f"{h}h" if h else "") + (f" {m}m" if m else "")).strip() or "0h"
+        rng = f" · {d.get('permission_from')}–{d.get('permission_to')}" if d.get("permission_from") and d.get("permission_to") else ""
+        return f"Permission ({dur}{rng}) · {d.get('from_date')}"
+    if cat == "Half Day":
+        return f"{lt} – Half Day ({d.get('half_day_type') or ''}) · {d.get('from_date')}"
+    return f"{lt} · {d.get('from_date')} → {d.get('to_date') or d.get('from_date')}"
+
+
 async def post_leave_update(org_id: str, text: str, actor_id: str):
     """Post a leave update into the admin-only "Leave Updates" chat group."""
     try:
@@ -1648,18 +1662,18 @@ async def apply_leave(body: LeaveIn, user: dict = Depends(get_current_user)):
            "category": body.category,
            "half_day_type": body.half_day_type,
            "permission_hours": body.permission_hours,
-           "permission_minutes": body.permission_minutes,
+           "permission_minutes": body.permission_minutes, "permission_from": body.permission_from, "permission_to": body.permission_to,
            "applied_at": now_utc().isoformat()}
     await db.leaves.insert_one(doc)
-    await post_leave_update(user["org_id"], f"📝 {emp['name']} applied for {body.leave_type} · {body.from_date} → {body.to_date}", user["id"])
+    await post_leave_update(user["org_id"], f"📝 {emp['name']} applied for {leave_label(dict(body))}", user["id"])
     # notify team leader / admins
     if emp.get("team_leader_id"):
         tl_user = await db.users.find_one({"employee_id_ref": emp["team_leader_id"]})
         if tl_user:
-            await create_notification(tl_user["id"], "leave", f"{emp['name']} applied for {body.leave_type}")
+            await create_notification(tl_user["id"], "leave", f"{emp['name']} applied for {leave_label(dict(body))}")
     admins = await db.users.find({"org_id": user["org_id"], "role": {"$in": ["admin", "admin_staff"]}}).to_list(20)
     for a in admins:
-        await create_notification(a["id"], "leave", f"{emp['name']} applied for {body.leave_type}")
+        await create_notification(a["id"], "leave", f"{emp['name']} applied for {leave_label(dict(body))}")
     await log_activity(user["org_id"], f"{emp['name']} applied for leave")
     doc.pop("_id", None)
     return doc
@@ -1766,7 +1780,7 @@ async def approve_leave(leave_id: str, user: dict = Depends(require_leave_admin(
     if emp_user:
         await create_notification(emp_user["id"], "leave", f"Your {leave['leave_type']} was approved")
     await log_activity(user["org_id"], f"Leave approved for {leave['employee_name']} by {user.get('name')}")
-    await post_leave_update(user["org_id"], f"✅ {leave['employee_name']}'s {leave['leave_type']} ({leave['from_date']} → {leave['to_date']}) was approved by {user.get('name')}", user["id"])
+    await post_leave_update(user["org_id"], f"✅ {leave['employee_name']}'s {leave_label(leave)} was approved by {user.get('name')}", user["id"])
     return await db.leaves.find_one({"id": leave_id}, {"_id": 0})
 
 
@@ -1778,7 +1792,7 @@ async def reject_leave(leave_id: str, user: dict = Depends(require_leave_admin()
     res = await db.leaves.update_one({"id": leave_id, "org_id": user["org_id"], "status": "Pending"}, {"$set": {"status": "Rejected", "decided_by": user.get("name"), "decided_by_role": user.get("role"), "decided_at": datetime.now(timezone.utc).isoformat()}})
     if res.modified_count == 0:
         raise HTTPException(status_code=400, detail="Leave already processed")
-    await post_leave_update(user["org_id"], f"❌ {leave['employee_name']}'s {leave['leave_type']} ({leave['from_date']} → {leave['to_date']}) was rejected by {user.get('name')}", user["id"])
+    await post_leave_update(user["org_id"], f"❌ {leave['employee_name']}'s {leave_label(leave)} was rejected by {user.get('name')}", user["id"])
     emp_user = await db.users.find_one({"employee_id_ref": leave["employee_id"]})
     if emp_user:
         await create_notification(emp_user["id"], "leave", f"Your {leave['leave_type']} was rejected")

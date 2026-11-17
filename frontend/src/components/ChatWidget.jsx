@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import LeaveMsgText from "@/components/LeaveMsgText";
 import { MessageCircle, X, Send, MoreVertical, Trash2 } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -186,7 +187,7 @@ export default function ChatWidget() {
                   
                   <div className={`flex items-center gap-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div className={`max-w-[220px] rounded-2xl px-4 py-2 text-sm break-words ${isMe ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-none shadow-sm'}`}>
-                      {m.message}
+                      <LeaveMsgText text={m.message} />
                     </div>
                     
                     <div className="relative">

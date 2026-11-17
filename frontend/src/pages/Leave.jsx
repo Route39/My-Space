@@ -41,8 +41,18 @@ function StaffLeave() {
   const [data, setData] = useState({ balance: null, leaves: [] });
   const [approvedLeaves, setApprovedLeaves] = useState([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1", permission_minutes: "0" });
+  const [form, setForm] = useState({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "0", permission_minutes: "0", permission_from: "", permission_to: "" });
   const [busy, setBusy] = useState(false);
+  const toMin = (t) => { const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(t || ""); return m ? +m[1] * 60 + +m[2] : null; };
+  const setPermTime = (key, raw) => {
+    let v = raw.replace(/\D/g, "").slice(0, 4);
+    if (v.length > 2) v = v.slice(0, 2) + ":" + v.slice(2);
+    const next = { ...form, [key]: v };
+    const a = toMin(next.permission_from), b = toMin(next.permission_to);
+    const d = a !== null && b !== null && b > a ? b - a : 0;
+    next.permission_hours = String(Math.floor(d / 60)); next.permission_minutes = String(d % 60);
+    setForm(next);
+  };
 
   const load = async () => { 
     const { data } = await api.get("/leaves/me"); 
@@ -60,7 +70,7 @@ function StaffLeave() {
       await api.post("/leaves", payload);
       toast.success("Leave applied");
       setOpen(false);
-      setForm({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "1", permission_minutes: "0" });
+      setForm({ leave_type: "Casual Leave", from_date: "", to_date: "", reason: "", category: "Full Day", half_day_type: "1st Half", permission_hours: "0", permission_minutes: "0", permission_from: "", permission_to: "" });
       load();
     } catch (e) { toast.error(apiErr(e.response?.data?.detail)); }
     setBusy(false);
@@ -133,8 +143,10 @@ function StaffLeave() {
                     </div>
                   )}
                   {form.category === "Permission" && (
-                    <div><Label>Time Early (Hrs : Min)</Label>
-                      <div className="flex gap-2 mt-1"><Input type="number" min="0" max="8" placeholder="Hrs" className="rounded-xl" value={form.permission_hours} onChange={(e) => setForm({ ...form, permission_hours: e.target.value })} /><Input type="number" min="0" max="59" placeholder="Min" className="rounded-xl" value={form.permission_minutes} onChange={(e) => setForm({ ...form, permission_minutes: e.target.value })} /></div>
+                    <div className="col-span-full grid grid-cols-3 gap-2">
+                      <div><Label>From (24h)</Label><Input inputMode="numeric" placeholder="HH:MM" maxLength={5} className="rounded-xl mt-1" value={form.permission_from} onChange={(e) => setPermTime("permission_from", e.target.value)} /></div>
+                      <div><Label>To (24h)</Label><Input inputMode="numeric" placeholder="HH:MM" maxLength={5} className="rounded-xl mt-1" value={form.permission_to} onChange={(e) => setPermTime("permission_to", e.target.value)} /></div>
+                      <div><Label>Total Hours</Label><div className="rounded-xl mt-1 h-10 px-3 flex items-center border bg-slate-50 text-sm font-semibold">{(+form.permission_hours || +form.permission_minutes) ? fmtDur(form) : "—"}</div></div>
                     </div>
                   )}
                 </div>
@@ -154,7 +166,7 @@ function StaffLeave() {
               <div><Label>Reason</Label><Textarea className="rounded-xl mt-1" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></div>
             </div>
             <DialogFooter>
-              <Button data-testid="leave-submit" onClick={submit} disabled={busy || !form.from_date || (form.category === "Full Day" && !form.to_date)} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Applying…" : "Apply"}</Button>
+              <Button data-testid="leave-submit" onClick={submit} disabled={busy || !form.from_date || (form.category === "Permission" && !(+form.permission_hours || +form.permission_minutes)) || (form.category === "Full Day" && !form.to_date)} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">{busy ? "Applying…" : "Apply"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -453,4 +465,6 @@ function ManagerLeave() {
   );
 }
 
-function fmtPerm(l) { const h = +l.permission_hours || 0; const m = +l.permission_minutes || 0; return ((h ? h + "h" : "") + (m ? (h ? " " : "") + m + "m" : "")) || "0h"; }
+function fmtDur(l) { const h = +l.permission_hours || 0; const m = +l.permission_minutes || 0; return ((h ? h + "h" : "") + (m ? (h ? " " : "") + m + "m" : "")) || "0h"; }
+
+function fmtPerm(l) { return fmtDur(l) + (l.permission_from && l.permission_to ? " · " + l.permission_from + "–" + l.permission_to : ""); }
