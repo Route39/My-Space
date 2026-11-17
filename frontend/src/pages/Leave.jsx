@@ -324,7 +324,7 @@ function ManagerLeave() {
                         {shortDate(l.from_date)}{l.category === "Full Day" && l.from_date !== l.to_date ? ` → ${shortDate(l.to_date)}` : ""}
                       </td>
                       <td className="px-3 py-3 text-slate-600">{l.days}</td>
-                      <td className="px-5 py-3"><StatusBadge status={l.status} />{l.decided_by && l.status !== "Pending" && <div className="mt-1 text-xs text-slate-500">{l.status} by <b>{l.decided_by}</b>{l.decided_at ? ` · ${new Date(l.decided_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>}</td>
+                      <td className="px-5 py-3"><StatusBadge status={l.status} />{l.decided_by && l.status !== "Pending" && <div className="mt-1 text-xs text-slate-500">{l.status} by <b>{l.decided_by}</b>{l.decided_at ? ` · ${new Date(l.decided_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>}{l.status === "Approved" && <div><Button size="sm" variant="outline" onClick={() => { if (window.confirm(`Reject ${l.employee_name}'s approved leave?`)) act(l.id, "reject"); }} data-testid={`reject-approved-${l.id}`} className="mt-2 h-7 rounded-lg border-red-200 text-red-600 hover:bg-red-50 text-xs"><X className="w-3 h-3 mr-1" />Reject</Button></div>}</td>
                     </tr>
                   ))}
                 </tbody>
