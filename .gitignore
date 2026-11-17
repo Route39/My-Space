@@ -94,3 +94,16 @@ frontend/node_modules/.cache/default-development/0.pack
 *.before-*
 src_backup_before_mobile_fix/
 *.bak-resp
+
+# backups & user uploads
+*.bak
+*.bak-*
+backend/uploads/
+
+# backup files
+*.bak
+*.bak-*
+*.bak*
+
+# runtime uploads
+backend/uploads/
