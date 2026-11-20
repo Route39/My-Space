@@ -37,6 +37,7 @@ function Protected({ children, roles }) {
 }
 
 import LeaveApprovalPopup from "@/components/LeaveApprovalPopup";
+import LeaveDecisionPopup from "@/components/LeaveDecisionPopup";
 
 function AppRoutes() {
   return (
@@ -64,6 +65,7 @@ function AppRoutes() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <LeaveApprovalPopup />
+      <LeaveDecisionPopup />
     </>
   );
 }

@@ -41,7 +41,7 @@ export default function LeaveLog() {
                   <td className="px-5 py-3">{fmtDay(l.from_date)}{l.to_date && l.to_date !== l.from_date ? ` – ${fmtDay(l.to_date)}` : ""}</td>
                   <td className="px-5 py-3 text-slate-500">{fmt(l.created_at)}</td>
                   <td className="px-5 py-3"><StatusBadge status={l.status} /></td>
-                  <td className="px-5 py-3">{l.decided_by ? <b>{l.decided_by}</b> : "—"}</td>
+                  <td className="px-5 py-3">{l.decided_by ? <b>{l.decided_by}</b> : "—"}{l.decision_reason && <div className="mt-1 text-xs text-slate-600 italic">Reason: {l.decision_reason}</div>}{l.postponed && l.postponed_from && <div className="mt-1 text-xs text-amber-700">Postponed from {new Date(l.postponed_from).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</div>}</td>
                   <td className="px-5 py-3 text-slate-500">{fmt(l.decided_at)}</td>
                 </tr>))}
           </tbody>

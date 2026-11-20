@@ -110,9 +110,22 @@ export default function LeaveApprovalPopup() {
     bubble.setPos((p) => bubble.clamp(p));
   }, [pending.length, worked.length, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [reasons, setReasons] = useState({});
+  const [pp, setPp] = useState({});
+  const postpone = async (l) => {
+    const p = pp[l.id] || {};
+    if (!p.from) { toast.error("Pick a new date"); return; }
+    try {
+      await api.put(`/leaves/${l.id}/postpone`, { from_date: p.from, to_date: p.to || p.from, reason: (reasons[l.id] || "").trim() });
+      toast.success("Leave postponed");
+      setPp((x) => ({ ...x, [l.id]: null })); setReasons((r) => ({ ...r, [l.id]: "" }));
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Postpone failed"); }
+  };
   const act = async (id, action) => {
     try {
-      await api.put(`/leaves/${id}/${action}`);
+      await api.put(`/leaves/${id}/${action}`, { reason: (reasons[id] || "").trim() });
+      setReasons((r) => ({ ...r, [id]: "" }));
       toast.success(action === "approve" ? "Leave approved" : "Leave rejected");
       load();
     } catch (e) {
@@ -183,6 +196,7 @@ export default function LeaveApprovalPopup() {
               </span>
             </p>
             {l.reason && <p className="text-xs text-slate-600 mb-3 italic">"{l.reason}"</p>}
+            <textarea data-nodrag rows={2} value={reasons[l.id] || ""} onChange={(e) => setReasons((r) => ({ ...r, [l.id]: e.target.value }))} onPointerDown={(e) => e.stopPropagation()} placeholder="Reason (optional)" className="w-full mb-2 text-xs p-2 rounded-lg border border-slate-200 bg-white select-text cursor-text focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none" />
             <div className="flex gap-2" data-nodrag>
               <Button size="sm" onClick={() => act(l.id, "approve")} className="flex-1 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs">
                 <Check className="w-3.5 h-3.5 mr-1" /> Approve
@@ -190,7 +204,19 @@ export default function LeaveApprovalPopup() {
               <Button size="sm" variant="outline" onClick={() => act(l.id, "reject")} className="flex-1 h-8 rounded-lg border-red-200 text-red-600 hover:bg-red-50 text-xs">
                 <X className="w-3.5 h-3.5 mr-1" /> Reject
               </Button>
+              <Button size="sm" variant="outline" onClick={() => setPp((x) => ({ ...x, [l.id]: x[l.id] ? null : { from: "", to: "" } }))} className="flex-1 h-8 rounded-lg border-amber-200 text-amber-700 hover:bg-amber-50 text-xs">
+                <CalendarClock className="w-3.5 h-3.5 mr-1" /> Postpone
+              </Button>
             </div>
+            {pp[l.id] && (
+              <div data-nodrag onPointerDown={(e) => e.stopPropagation()} className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200 space-y-2 select-text">
+                <div className="flex gap-2">
+                  <label className="flex-1 text-[10px] text-slate-600">New from<input type="date" value={pp[l.id].from} onChange={(e) => setPp((x) => ({ ...x, [l.id]: { ...x[l.id], from: e.target.value } }))} className="mt-0.5 w-full h-7 px-1 text-xs rounded border border-slate-200" /></label>
+                  {l.category === "Full Day" && <label className="flex-1 text-[10px] text-slate-600">New to<input type="date" min={pp[l.id].from} value={pp[l.id].to} onChange={(e) => setPp((x) => ({ ...x, [l.id]: { ...x[l.id], to: e.target.value } }))} className="mt-0.5 w-full h-7 px-1 text-xs rounded border border-slate-200" /></label>}
+                </div>
+                <Button size="sm" onClick={() => postpone(l)} className="w-full h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-xs">Confirm postpone</Button>
+              </div>
+            )}
           </div>
         ))}
         {worked.map((l) => (

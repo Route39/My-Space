@@ -200,7 +200,7 @@ function StaffLeave() {
                   <td className="px-3 py-3 text-slate-600">{shortDate(l.from_date)}</td>
                   <td className="px-3 py-3 text-slate-600">{l.category === "Full Day" && l.from_date !== l.to_date ? shortDate(l.to_date) : "-"}</td>
                   <td className="px-3 py-3 text-slate-600">{l.days}</td>
-                  <td className="px-5 py-3"><StatusBadge status={l.status} />{l.decided_by && l.status !== "Pending" && <div className="mt-1 text-xs text-slate-500">{l.status} by <b>{l.decided_by}</b>{l.decided_at ? ` · ${new Date(l.decided_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>}</td>
+                  <td className="px-5 py-3"><StatusBadge status={l.status} />{l.decided_by && l.status !== "Pending" && <div className="mt-1 text-xs text-slate-500">{l.status} by <b>{l.decided_by}</b>{l.decided_at ? ` · ${new Date(l.decided_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>}{l.decision_reason && <div className="mt-1 text-xs text-slate-600 italic">Reason: {l.decision_reason}</div>}{l.postponed && l.postponed_from && <div className="mt-1 text-xs text-amber-700">Postponed from {new Date(l.postponed_from).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</div>}</td>
                 </tr>
               ))}
             </tbody>
@@ -225,8 +225,20 @@ function ManagerLeave() {
   };
   useEffect(() => { load(); }, []);
 
-  const act = async (id, action) => {
-    await api.put(`/leaves/${id}/${action}`);
+  const [rowReason, setRowReason] = useState({});
+  const [rowPP, setRowPP] = useState({});
+  const postponeRow = async (l) => {
+    const p = rowPP[l.id] || {};
+    if (!p.from) { toast.error("Pick a new date"); return; }
+    try {
+      await api.put(`/leaves/${l.id}/postpone`, { from_date: p.from, to_date: p.to || p.from, reason: (rowReason[l.id] || "").trim() });
+      toast.success("Leave postponed");
+      setRowPP((x) => ({ ...x, [l.id]: null })); setRowReason((r) => ({ ...r, [l.id]: "" }));
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Postpone failed"); }
+  };
+  const act = async (id, action, reason = "") => {
+    await api.put(`/leaves/${id}/${action}`, { reason: (reason || "").trim() });
     toast.success(action === "approve" ? "Leave approved" : "Leave rejected");
     load();
   };
@@ -324,7 +336,7 @@ function ManagerLeave() {
                         {shortDate(l.from_date)}{l.category === "Full Day" && l.from_date !== l.to_date ? ` → ${shortDate(l.to_date)}` : ""}
                       </td>
                       <td className="px-3 py-3 text-slate-600">{l.days}</td>
-                      <td className="px-5 py-3"><StatusBadge status={l.status} />{l.decided_by && l.status !== "Pending" && <div className="mt-1 text-xs text-slate-500">{l.status} by <b>{l.decided_by}</b>{l.decided_at ? ` · ${new Date(l.decided_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>}{l.status === "Approved" && <div><Button size="sm" variant="outline" onClick={() => { if (window.confirm(`Reject ${l.employee_name}'s approved leave?`)) act(l.id, "reject"); }} data-testid={`reject-approved-${l.id}`} className="mt-2 h-7 rounded-lg border-red-200 text-red-600 hover:bg-red-50 text-xs"><X className="w-3 h-3 mr-1" />Reject</Button></div>}</td>
+                      <td className="px-5 py-3"><StatusBadge status={l.status} />{l.decided_by && l.status !== "Pending" && <div className="mt-1 text-xs text-slate-500">{l.status} by <b>{l.decided_by}</b>{l.decided_at ? ` · ${new Date(l.decided_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</div>}{l.decision_reason && <div className="mt-1 text-xs text-slate-600 italic">Reason: {l.decision_reason}</div>}{l.postponed && l.postponed_from && <div className="mt-1 text-xs text-amber-700">Postponed from {new Date(l.postponed_from).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</div>}{l.status === "Approved" && <div><input value={rowReason[l.id] || ""} onChange={(e) => setRowReason((r) => ({ ...r, [l.id]: e.target.value }))} placeholder="Reason (optional)" className="mt-2 block w-52 h-7 px-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" /><Button size="sm" variant="outline" onClick={() => { act(l.id, "reject", rowReason[l.id]); setRowReason((r) => ({ ...r, [l.id]: "" })); }} data-testid={`reject-approved-${l.id}`} className="mt-2 h-7 rounded-lg border-red-200 text-red-600 hover:bg-red-50 text-xs"><X className="w-3 h-3 mr-1" />Reject</Button><Button size="sm" variant="outline" onClick={() => setRowPP((x) => ({ ...x, [l.id]: x[l.id] ? null : { from: "", to: "" } }))} className="mt-2 ml-2 h-7 rounded-lg border-amber-200 text-amber-700 hover:bg-amber-50 text-xs">Postpone</Button>{rowPP[l.id] && <div className="mt-2 flex flex-wrap items-end gap-2"><label className="text-[10px] text-slate-600">New from<input type="date" value={rowPP[l.id].from} onChange={(e) => setRowPP((x) => ({ ...x, [l.id]: { ...x[l.id], from: e.target.value } }))} className="block h-7 px-1 text-xs rounded border border-slate-200" /></label>{l.category === "Full Day" && <label className="text-[10px] text-slate-600">New to<input type="date" min={rowPP[l.id].from} value={rowPP[l.id].to} onChange={(e) => setRowPP((x) => ({ ...x, [l.id]: { ...x[l.id], to: e.target.value } }))} className="block h-7 px-1 text-xs rounded border border-slate-200" /></label>}<Button size="sm" onClick={() => postponeRow(l)} className="h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-xs">Confirm postpone</Button></div>}</div>}{l.status === "Rejected" && <div><input value={rowReason[l.id] || ""} onChange={(e) => setRowReason((r) => ({ ...r, [l.id]: e.target.value }))} placeholder="Reason (optional)" className="mt-2 block w-52 h-7 px-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" /><Button size="sm" variant="outline" onClick={() => { act(l.id, "approve", rowReason[l.id]); setRowReason((r) => ({ ...r, [l.id]: "" })); }} data-testid={`approve-rejected-${l.id}`} className="mt-2 h-7 rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-xs"><Check className="w-3 h-3 mr-1" />Approve</Button><Button size="sm" variant="outline" onClick={() => setRowPP((x) => ({ ...x, [l.id]: x[l.id] ? null : { from: "", to: "" } }))} className="mt-2 ml-2 h-7 rounded-lg border-amber-200 text-amber-700 hover:bg-amber-50 text-xs">Postpone</Button>{rowPP[l.id] && <div className="mt-2 flex flex-wrap items-end gap-2"><label className="text-[10px] text-slate-600">New from<input type="date" value={rowPP[l.id].from} onChange={(e) => setRowPP((x) => ({ ...x, [l.id]: { ...x[l.id], from: e.target.value } }))} className="block h-7 px-1 text-xs rounded border border-slate-200" /></label>{l.category === "Full Day" && <label className="text-[10px] text-slate-600">New to<input type="date" min={rowPP[l.id].from} value={rowPP[l.id].to} onChange={(e) => setRowPP((x) => ({ ...x, [l.id]: { ...x[l.id], to: e.target.value } }))} className="block h-7 px-1 text-xs rounded border border-slate-200" /></label>}<Button size="sm" onClick={() => postponeRow(l)} className="h-7 rounded-lg bg-amber-600 hover:bg-amber-700 text-xs">Confirm postpone</Button></div>}</div>}</td>
                     </tr>
                   ))}
                 </tbody>
